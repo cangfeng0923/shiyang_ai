@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>食养AI - 登录注册</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 450px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 24px;
+            padding: 40px 30px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+            animation: fadeInUp 0.5s ease;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo-icon {
+            font-size: 64px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 15px;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .logo h1 {
+            font-size: 1.8rem;
+            color: #333;
+        }
+
+        .logo p {
+            color: #666;
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 12px;
+            font-size: 1rem;
+            outline: none;
+            transition: all 0.3s;
+        }
+
+        .form-group input:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .switch-text {
+            text-align: center;
+            margin-top: 20px;
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .switch-text span {
+            color: #667eea;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .switch-text span:hover {
+            text-decoration: underline;
+        }
+
+        .message {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 10px;
+            text-align: center;
+            font-size: 0.85rem;
+            display: none;
+        }
+
+        .message.error {
+            background: #fee;
+            color: #c33;
+            display: block;
+        }
+
+        .message.success {
+            background: #efe;
+            color: #3a6;
+            display: block;
+        }
+
+        .features {
+            margin-top: 30px;
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .feature {
+            text-align: center;
+            color: white;
+            font-size: 0.8rem;
+            opacity: 0.8;
+        }
+
+        .feature-icon {
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+
+        @media (max-width: 480px) {
+            .card {
+                padding: 30px 20px;
+            }
+
+            .logo h1 {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="card">
+        <div class="logo">
+            <div class="logo-icon">🌿</div>
+            <h1>食养AI</h1>
+            <p>老中医智能助手 · 个性化养生</p>
+        </div>
+
+        <!-- 登录表单 -->
+        <div id="loginForm">
+            <div class="form-group">
+                <input type="text" id="loginUsername" placeholder="用户名" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <input type="password" id="loginPassword" placeholder="密码" autocomplete="current-password">
+            </div>
+            <button class="btn" onclick="handleLogin()">登 录</button>
+            <div class="switch-text">
+                还没有账号？ <span onclick="showRegister()">立即注册</span>
+            </div>
+        </div>
+
+        <!-- 注册表单（初始隐藏） -->
+        <div id="registerForm" style="display: none;">
+            <div class="form-group">
+                <input type="text" id="regUsername" placeholder="用户名" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <input type="password" id="regPassword" placeholder="密码" autocomplete="new-password">
+            </div>
+            <div class="form-group">
+                <input type="password" id="regConfirmPassword" placeholder="确认密码" autocomplete="new-password">
+            </div>
+            <button class="btn" onclick="handleRegister()">注 册</button>
+            <div class="switch-text">
+                已有账号？ <span onclick="showLogin()">返回登录</span>
+            </div>
+        </div>
+
+        <div id="message" class="message"></div>
+    </div>
+
+    <div class="features">
+        <div class="feature">
+            <div class="feature-icon">📝</div>
+            <div>体质测评</div>
+        </div>
+        <div class="feature">
+            <div class="feature-icon">🌿</div>
+            <div>养生建议</div>
+        </div>
+        <div class="feature">
+            <div class="feature-icon">💬</div>
+            <div>智能问答</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // API 基础地址
+    const API_BASE = '';
+
+    function showMessage(msg, type) {
+        const msgDiv = document.getElementById('message');
+        msgDiv.textContent = msg;
+        msgDiv.className = `message ${type}`;
+        setTimeout(() => {
+            msgDiv.className = 'message';
+        }, 3000);
+    }
+
+    function showRegister() {
+        document.getElementById('loginForm').style.display = 'none';
+        document.getElementById('registerForm').style.display = 'block';
+        document.getElementById('message').className = 'message';
+    }
+
+    function showLogin() {
+        document.getElementById('registerForm').style.display = 'none';
+        document.getElementById('loginForm').style.display = 'block';
+        document.getElementById('message').className = 'message';
+    }
+
+    async function handleLogin() {
+        const username = document.getElementById('loginUsername').value.trim();
+        const password = document.getElementById('loginPassword').value;
+
+        if (!username || !password) {
+            showMessage('请填写用户名和密码', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE}/api/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                // 保存用户信息到 localStorage
+                localStorage.setItem('currentUser', JSON.stringify({
+                    userId: data.userId,
+                    username: data.username,
+                    constitution: data.constitution || null
+                }));
+                showMessage('登录成功，正在跳转...', 'success');
+                setTimeout(() => {
+                    window.location.href = 'chat.html';
+                }, 1000);
+            } else {
+                showMessage(data.message || '登录失败', 'error');
+            }
+        } catch (error) {
+            console.error('登录错误:', error);
+            showMessage('网络错误，请稍后再试', 'error');
+        }
+    }
+
+    async function handleRegister() {
+        const username = document.getElementById('regUsername').value.trim();
+        const password = document.getElementById('regPassword').value;
+        const confirmPassword = document.getElementById('regConfirmPassword').value;
+
+        if (!username || !password) {
+            showMessage('请填写用户名和密码', 'error');
+            return;
+        }
+
+        if (password !== confirmPassword) {
+            showMessage('两次输入的密码不一致', 'error');
+            return;
+        }
+
+        if (password.length < 6) {
+            showMessage('密码长度至少6位', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE}/api/auth/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                showMessage('注册成功！请登录', 'success');
+                setTimeout(() => {
+                    showLogin();
+                    document.getElementById('loginUsername').value = username;
+                    document.getElementById('loginPassword').value = '';
+                }, 1500);
+            } else {
+                showMessage(data.message || '注册失败', 'error');
+            }
+        } catch (error) {
+            console.error('注册错误:', error);
+            showMessage('网络错误，请稍后再试', 'error');
+        }
+    }
+
+    // 检查是否已登录，如果已登录直接跳转
+    const savedUser = localStorage.getItem('currentUser');
+    if (savedUser) {
+        try {
+            const user = JSON.parse(savedUser);
+            if (user.userId && user.username) {
+                window.location.href = 'chat.html';
+            }
+        } catch(e) {}
+    }
+</script>
+</body>
+</html>

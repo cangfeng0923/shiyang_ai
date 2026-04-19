@@ -1,0 +1,68 @@
+spring:
+  application:
+    name: shiyang-ai
+
+  # H2 ?????
+  datasource:
+    url: jdbc:mysql://localhost:3306/shiyangdb?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: 1234
+
+  sql:
+    init:
+      mode: never
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 8
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+
+# USDA API ?????demo key?????????
+usda:
+  api:
+    key: v4F0zY1P4eZFdazQKhvF6RwXcRfvvfNGdfZ5k31z
+    url: https://api.nal.usda.gov/fdc/v1/foods/search
+
+# ????
+cache:
+  nutrition:
+    ttl: 3600
+    max-size: 1000
+
+# ??
+logging:
+  level:
+    com.shiyang: DEBUG
+
+# MyBatis-Plus 配置
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+
+deepseek:
+  api:
+    key: sk-b1680a31656340988f989bdcb5a72568
+  proxy:
+    host: 127.0.0.1   # 代理地址，例如 127.0.0.1
+    port: 7890
+
+# 自定义配置
+food:
+  cache:
+    ttl: 2592000  # 30天
+    max-size: 10000
+  crawler:
+    timeout: 5000
+    retry: 3
