@@ -81,6 +81,7 @@ public class FoodAnalysisService {
         saveHistoryAsync(userId, foodName, constitution, advice, nutrition);
 
         log.info("分析完成: foodName={}, suitability={}", foodName, advice.getSuitability());
+        log.info("=== analyze 方法执行完成，准备保存历史 ===");
         return response;
     }
 
@@ -90,9 +91,14 @@ public class FoodAnalysisService {
     private void saveHistoryAsync(String userId, String foodName, String constitution,
                                   ConstitutionType.SuitabilityResult advice, Map<String, Object> nutrition) {
         try {
+            log.info("=== 开始保存历史记录 ===");  // 添加这行
+            log.info("userId: {}, foodName: {}, constitution: {}", userId, foodName, constitution);
+
             String nutritionJson = objectMapper.writeValueAsString(nutrition);
             userService.saveFoodHistory(userId, foodName, constitution,
                     advice.getSuitability(), advice.getSuggestion(), nutritionJson);
+
+            log.info("=== 历史记录保存成功 ===");  // 添加这行
         } catch (JsonProcessingException e) {
             log.error("序列化营养数据失败: {}", e.getMessage());
             userService.saveFoodHistory(userId, foodName, constitution,

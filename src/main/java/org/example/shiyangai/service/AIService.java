@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -22,6 +23,12 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
+
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Slf4j
 @Service
@@ -54,14 +61,218 @@ public class AIService {
     @Autowired
     private HealthReportService healthReportService;
 
+    @Autowired
+    private UserService userService;
+
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
+    // 在类中添加这个字段（和其他字段放在一起）
+    private final ExecutorService executorService;
+
+    // 在构造函数中初始化
     public AIService() {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(60))
                 .build();
         this.objectMapper = new ObjectMapper();
+        this.executorService = Executors.newCachedThreadPool();  // 添加这行
+    }
+
+    public SseEmitter chatStream(String userId, String userMessage, String constitution) {
+        SseEmitter emitter = new SseEmitter(120000L); // 2分钟超时
+
+        executorService.execute(() -> {
+            try {
+                streamChat(userId, userMessage, constitution, emitter);
+            } catch (Exception e) {
+                log.error("流式对话异常", e);
+                try {
+                    emitter.send(SseEmitter.event()
+                            .name("error")
+                            .data("服务异常：" + e.getMessage()));
+                    emitter.complete();
+                } catch (Exception ex) {
+                    emitter.completeWithError(ex);
+                }
+            }
+        });
+
+        return emitter;
+    }
+
+    /**
+     * 流式处理核心逻辑
+     */
+    private void streamChat(String userId, String userMessage, String constitution, SseEmitter emitter) throws Exception {
+        log.info("AI流式对话: userId={}, message={}, constitution={}", userId, userMessage, constitution);
+
+        // 1. 获取用户完整信息
+        HealthProfile profile = healthProfileService.getProfile(userId);
+        List<DietRecord> todayRecords = dietRecordService.getTodayRecords(userId);
+        List<DietRecord> weekRecords = dietRecordService.getWeekRecords(userId);
+
+        // 2. 获取当前节气
+        String solarTermAdvice = dynamicSolarTermService.getDynamicSolarTermAdvice(constitution);
+
+        // 3. 获取聊天历史（最近6条）
+        List<ChatHistory> history = chatHistoryMapper.getByUserId(userId, 6);
+
+        // 4. 提取用户询问的食物名称
+        String foodName = extractFoodName(userMessage);
+        IngredientInfo foodInfo = null;
+
+        // 5. 如果用户询问具体食物，调用百度百科获取真实信息
+        if (foodName != null && !foodName.isEmpty()) {
+            Object cached = redisCacheService.getFoodInfo(foodName);
+            if (cached instanceof IngredientInfo) {
+                foodInfo = (IngredientInfo) cached;
+                log.info("从缓存获取食材: {}", foodName);
+            } else {
+                try {
+                    foodInfo = baiduBaikeService.getIngredientInfo(foodName);
+                    log.info("从百度百科获取食材: {}, 属性={}", foodName, foodInfo != null ? foodInfo.getProperty() : "null");
+                    if (foodInfo != null) {
+                        redisCacheService.cacheFoodInfo(foodName, foodInfo);
+                    }
+                } catch (Exception e) {
+                    log.warn("百度百科获取失败，尝试本地服务: {}", e.getMessage());
+                    foodInfo = onDemandFoodService.getFoodInfo(foodName);
+                }
+            }
+
+            // 保存历史记录（异步，不影响流式输出）
+            if (foodInfo != null) {
+                saveFoodHistoryAsync(userId, foodName, constitution, foodInfo);
+            }
+        }
+
+        // 6. 提取症状
+        String symptom = extractSymptom(userMessage);
+
+        // 7. 检查是否在询问健康报告
+        if (isAskingForReport(userMessage)) {
+            String report = healthReportService.generateComprehensiveReport(userId, constitution);
+            // 报告一次性返回
+            emitter.send(SseEmitter.event().name("message").data(report));
+            emitter.send(SseEmitter.event().name("complete").data(""));
+            emitter.complete();
+            return;
+        }
+
+        // 8. 获取上次对话上下文
+        String previousContext = redisCacheService.getChatContext(userId);
+
+        // 9. 构建增强的系统提示词
+        String systemPrompt = buildEnhancedSystemPrompt(
+                userId, constitution, profile, todayRecords, weekRecords,
+                solarTermAdvice, foodInfo, symptom, previousContext
+        );
+
+        // 10. 构建消息列表
+        List<Map<String, String>> messages = new ArrayList<>();
+
+        Map<String, String> systemMessage = new HashMap<>();
+        systemMessage.put("role", "system");
+        systemMessage.put("content", systemPrompt);
+        messages.add(systemMessage);
+
+        // 添加历史消息
+        int historyCount = 0;
+        for (ChatHistory h : history) {
+            if (historyCount >= 6) break;
+            Map<String, String> historyMessage = new HashMap<>();
+            String role = h.getRole();
+            if ("ai".equals(role)) role = "assistant";
+            historyMessage.put("role", role);
+            historyMessage.put("content", h.getContent());
+            messages.add(historyMessage);
+            historyCount++;
+        }
+
+        // 添加当前用户消息
+        Map<String, String> userMsg = new HashMap<>();
+        userMsg.put("role", "user");
+        userMsg.put("content", userMessage);
+        messages.add(userMsg);
+
+        // 11. 调用流式API
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("model", "deepseek-chat");
+        requestBody.put("messages", messages);
+        requestBody.put("temperature", 0.7);
+        requestBody.put("max_tokens", 2000);
+        requestBody.put("stream", true);  // 开启流式
+
+        String jsonBody = objectMapper.writeValueAsString(requestBody);
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("https://api.deepseek.com/v1/chat/completions"))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + apiKey)
+                .timeout(Duration.ofSeconds(60))
+                .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                .build();
+
+        // 发送请求并处理流式响应
+        HttpResponse<InputStream> response = httpClient.send(request,
+                HttpResponse.BodyHandlers.ofInputStream());
+
+        if (response.statusCode() == 200) {
+            StringBuilder fullReply = new StringBuilder();
+
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.startsWith("data: ")) {
+                        String data = line.substring(6);
+                        if ("[DONE]".equals(data)) {
+                            break;
+                        }
+
+                        try {
+                            var jsonNode = objectMapper.readTree(data);
+                            String content = jsonNode
+                                    .path("choices")
+                                    .path(0)
+                                    .path("delta")
+                                    .path("content")
+                                    .asText();
+
+                            if (!content.isEmpty()) {
+                                fullReply.append(content);
+                                // 逐字发送给前端
+                                emitter.send(SseEmitter.event()
+                                        .name("message")
+                                        .data(content));
+                            }
+                        } catch (Exception e) {
+                            log.warn("解析流式数据失败: {}", e.getMessage());
+                        }
+                    }
+                }
+            }
+
+            String reply = fullReply.toString();
+
+            // 保存聊天记录
+            saveChat(userId, "user", userMessage);
+            saveChat(userId, "assistant", reply);
+
+            // 保存对话上下文到Redis
+            redisCacheService.cacheChatContext(userId, extractContextFromConversation(userMessage, reply));
+
+            // 发送完成信号
+            emitter.send(SseEmitter.event().name("complete").data(""));
+            emitter.complete();
+
+            log.info("AI流式回复成功: userId={}, 回复长度={}", userId, reply.length());
+        } else {
+            String errorBody = new String(response.body().readAllBytes());
+            log.error("API调用失败: status={}, body={}", response.statusCode(), errorBody);
+            emitter.send(SseEmitter.event().name("error").data("AI服务暂时不可用"));
+            emitter.complete();
+        }
     }
 
     /**
@@ -108,11 +319,15 @@ public class AIService {
                         foodInfo = onDemandFoodService.getFoodInfo(foodName);
                     }
                 }
+
+                // ✅ 在这里保存历史记录
+                if (foodInfo != null) {
+                    saveFoodHistory(userId, foodName, constitution, foodInfo);
+                }
             }
 
             // 6. 提取症状
             String symptom = extractSymptom(userMessage);
-
             // 7. 检查是否在询问健康报告
             if (isAskingForReport(userMessage)) {
                 return healthReportService.generateComprehensiveReport(userId, constitution);
@@ -201,6 +416,30 @@ public class AIService {
             log.error("AI对话异常", e);
             return "抱歉，服务出现异常：" + e.getMessage();
         }
+    }
+
+    /**
+     * 异步保存历史记录（不阻塞主流程）
+     */
+    private void saveFoodHistoryAsync(String userId, String foodName, String constitution, IngredientInfo foodInfo) {
+        executorService.submit(() -> {
+            try {
+                String suitability = getSuitabilityText(foodInfo, constitution);
+                String suggestion = buildSuggestion(foodInfo, constitution);
+
+                Map<String, Object> nutrition = new HashMap<>();
+                nutrition.put("property", foodInfo.getProperty());
+                nutrition.put("flavor", foodInfo.getFlavor());
+                nutrition.put("effect", foodInfo.getEffect());
+                nutrition.put("meridian", foodInfo.getMeridian());
+                String nutritionJson = objectMapper.writeValueAsString(nutrition);
+
+                userService.saveFoodHistory(userId, foodName, constitution, suitability, suggestion, nutritionJson);
+                log.info("已保存食材查询历史: userId={}, foodName={}, suitability={}", userId, foodName, suitability);
+            } catch (Exception e) {
+                log.error("保存食材历史失败: {}", e.getMessage());
+            }
+        });
     }
 
     /**
@@ -443,4 +682,55 @@ public class AIService {
     public List<ChatHistory> getChatHistory(String userId, int limit) {
         return chatHistoryMapper.getByUserId(userId, limit);
     }
+
+    // 添加保存历史的方法
+    private void saveFoodHistory(String userId, String foodName, String constitution, IngredientInfo foodInfo) {
+        try {
+            // 判断是否适合当前体质
+            String suitability = getSuitabilityText(foodInfo, constitution);
+
+            // 构建建议
+            String suggestion = buildSuggestion(foodInfo, constitution);
+
+            // 构建营养数据JSON
+            Map<String, Object> nutrition = new HashMap<>();
+            nutrition.put("property", foodInfo.getProperty());
+            nutrition.put("flavor", foodInfo.getFlavor());
+            nutrition.put("effect", foodInfo.getEffect());
+            nutrition.put("meridian", foodInfo.getMeridian());
+            String nutritionJson = objectMapper.writeValueAsString(nutrition);
+
+            // 调用保存
+            userService.saveFoodHistory(userId, foodName, constitution, suitability, suggestion, nutritionJson);
+
+            log.info("已保存食材查询历史: userId={}, foodName={}, suitability={}", userId, foodName, suitability);
+        } catch (Exception e) {
+            log.error("保存食材历史失败: {}", e.getMessage());
+        }
+    }
+
+    private String getSuitabilityText(IngredientInfo foodInfo, String constitution) {
+        int score = getSuitabilityScoreForFood(foodInfo, constitution);
+        if (score > 0) return "适合";
+        else if (score < 0) return "不适合";
+        else return "慎食";
+    }
+
+    private String buildSuggestion(IngredientInfo foodInfo, String constitution) {
+        String property = foodInfo.getProperty() != null ? foodInfo.getProperty() : "平";
+        String effect = foodInfo.getEffect() != null ? foodInfo.getEffect() : "";
+
+        if ("寒".equals(property) || "凉".equals(property)) {
+            if ("阳虚质".equals(constitution)) {
+                return "您为阳虚体质，此食物性偏寒凉，建议少食或搭配温性食材食用";
+            }
+        } else if ("温".equals(property) || "热".equals(property)) {
+            if ("阴虚质".equals(constitution) || "湿热质".equals(constitution)) {
+                return "您为" + constitution + "，此食物性偏温热，建议适量食用，避免上火";
+            }
+        }
+
+        return effect.isEmpty() ? "适量食用" : effect;
+    }
+
 }

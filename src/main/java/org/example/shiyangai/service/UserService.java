@@ -121,6 +121,10 @@ public class UserService {
     @Transactional
     public void saveFoodHistory(String userId, String foodName, String constitution,
                                 String suitability, String suggestion, String nutritionData) {
+        log.info("=== saveFoodHistory 被调用 ===");
+        log.info("参数: userId={}, foodName={}, constitution={}, suitability={}",
+                userId, foodName, constitution, suitability);
+
         FoodHistory history = new FoodHistory();
         history.setUserId(userId);
         history.setFoodName(foodName);
@@ -130,10 +134,16 @@ public class UserService {
         history.setNutritionData(nutritionData);
         history.setCreatedAt(LocalDateTime.now());
 
-        foodHistoryMapper.insert(history);
-        log.info("保存饮食历史: userId={}, foodName={}, suitability={}", userId, foodName, suitability);
-    }
+        // ✅ 添加这行：实际插入数据库
+        int result = foodHistoryMapper.insert(history);
 
+        if (result > 0) {
+            log.info("保存饮食历史成功: userId={}, foodName={}, suitability={}, id={}",
+                    userId, foodName, suitability, history.getId());
+        } else {
+            log.error("保存饮食历史失败: userId={}, foodName={}", userId, foodName);
+        }
+    }
     /**
      * 获取用户饮食历史（最近10条）
      */
