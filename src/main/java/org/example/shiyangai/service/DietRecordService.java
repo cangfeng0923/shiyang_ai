@@ -3,7 +3,9 @@ package org.example.shiyangai.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.example.shiyangai.crawler.FoodDataCrawler;
 import org.example.shiyangai.entity.DietRecord;
+import org.example.shiyangai.entity.IngredientInfo;
 import org.example.shiyangai.mapper.DietRecordMapper;
 import org.springframework.stereotype.Service;
 
@@ -20,6 +22,7 @@ import java.util.UUID;
 public class DietRecordService {
 
     private final DietRecordMapper dietRecordMapper;
+    private final FoodDataCrawler foodDataCrawler;  // ✅ 添加依赖注入
 
     /**
      * 添加饮食记录
@@ -27,10 +30,10 @@ public class DietRecordService {
     public void addRecord(DietRecord record) {
         record.setId(UUID.randomUUID().toString().replace("-", "").substring(0, 16));
         record.setCreateTime(LocalDateTime.now());
-        record.setRecordDate(record.getRecordDate() != null ? record.getRecordDate() : LocalDate.now());
+        record.setRecordDate(record.getRecordDate() != null ? record.getRecordDate() : LocalDateTime.now());
 
-        // 自动计算健康评分
-        int score = calculateHealthScore(record.getFoodName());
+        // 自动计算健康评分 - ✅ 传入整个 record 对象
+        int score = calculateHealthScore(record);
         record.setHealthScore(score);
         record.setSuggestions(generateSuggestions(score));
 
@@ -113,21 +116,45 @@ public class DietRecordService {
     }
 
     /**
-     * 计算健康评分
+     * 计算健康评分 - ✅ 接收 DietRecord 对象
      */
-    private int calculateHealthScore(String foodName) {
+    private int calculateHealthScore(DietRecord record) {
         int score = 70;
-        String lowerFood = foodName.toLowerCase();
+        String foodName = record.getFoodName();
 
-        // 加分项
-        if (lowerFood.contains("蔬菜") || lowerFood.contains("水果")) score += 15;
-        if (lowerFood.contains("粗粮") || lowerFood.contains("杂粮")) score += 10;
-        if (lowerFood.contains("蒸") || lowerFood.contains("煮")) score += 5;
+        // 从食物库获取营养信息
+        try {
+            IngredientInfo nutrition = foodDataCrawler.getFoodInfo(foodName);
 
-        // 减分项
-        if (lowerFood.contains("炸") || lowerFood.contains("烤")) score -= 20;
-        if (lowerFood.contains("甜") || lowerFood.contains("蛋糕") || lowerFood.contains("奶茶")) score -= 15;
-        if (lowerFood.contains("辣") || lowerFood.contains("麻辣")) score -= 10;
+            if (nutrition != null) {
+                // 基于营养成分评分
+                if (nutrition.getCalories() != null) {
+                    if (nutrition.getCalories() > 500) score -= 10;  // 高热量
+                    if (nutrition.getCalories() < 100) score += 5;   // 低热量
+                }
+            }
+        } catch (Exception e) {
+            log.warn("获取食物营养信息失败: {}", foodName, e);
+        }
+
+        // 基于烹饪方式（从食物名称推断）
+        String lowerName = foodName.toLowerCase();
+        if (lowerName.contains("蒸") || lowerName.contains("煮") || lowerName.contains("炖")) {
+            score += 10;
+        }
+        if (lowerName.contains("炸") || lowerName.contains("烤") || lowerName.contains("煎")) {
+            score -= 15;
+        }
+        if (lowerName.contains("甜") || lowerName.contains("糖")) {
+            score -= 10;
+        }
+        // 健康食材加分
+        if (lowerName.contains("蔬菜") || lowerName.contains("水果")) {
+            score += 15;
+        }
+        if (lowerName.contains("粗粮") || lowerName.contains("杂粮")) {
+            score += 10;
+        }
 
         return Math.max(0, Math.min(100, score));
     }

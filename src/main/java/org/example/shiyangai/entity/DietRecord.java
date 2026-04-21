@@ -24,6 +24,6 @@ public class DietRecord {
     private Integer healthScore;
     private String suggestions;
 
-    private LocalDate recordDate;
+    private LocalDateTime  recordDate;
     private LocalDateTime createTime;
 }
