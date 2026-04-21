@@ -1,7 +1,7 @@
-// chat.js - 真正的逐字打字机效果版
+// chat.js - 修复光标残留问题
 
 // 全局变量
-let currentStreamController = null; // 用于控制当前流式输出
+let currentStreamController = null;
 
 // 发送消息（流式输出）
 async function sendMessage() {
@@ -15,6 +15,9 @@ async function sendMessage() {
     // 取消之前的流式输出
     if (currentStreamController) {
         clearTimeout(currentStreamController.timeout);
+        if (currentStreamController.eventSource) {
+            currentStreamController.eventSource.close();
+        }
         currentStreamController = null;
     }
 
@@ -24,9 +27,9 @@ async function sendMessage() {
 
     let fullReply = '';
     let eventSource = null;
-    let charQueue = []; // 字符队列
-    let isTyping = false; // 是否正在打字
-    let currentDisplayText = ''; // 当前已显示的文本
+    let charQueue = [];
+    let isTyping = false;
+    let currentDisplayText = '';
 
     // 逐字显示函数
     const typeNextChar = () => {
@@ -38,19 +41,19 @@ async function sendMessage() {
             updateAIMessage(aiMessageDiv, currentDisplayText);
             scrollToBottom();
 
-            // 随机延迟 30-80ms 模拟真实打字效果
             const delay = Math.random() * 50 + 30;
             currentStreamController.timeout = setTimeout(typeNextChar, delay);
             isTyping = true;
         } else {
             isTyping = false;
-            // 等待新数据
             if (currentStreamController) {
                 currentStreamController.timeout = setTimeout(() => {
                     if (!isTyping && charQueue.length === 0 && currentStreamController) {
-                        // 没有新数据，认为完成
                         if (currentStreamController.completed) {
                             finalizeAIMessage(aiMessageDiv);
+                            if (currentStreamController) {
+                                currentStreamController = null;
+                            }
                         }
                     }
                 }, 500);
@@ -62,13 +65,12 @@ async function sendMessage() {
     const addToQueue = (newContent) => {
         if (!newContent) return;
 
-        // 将新内容拆分成单个字符（包括中文、英文、标点）
+        // 处理 HTML 实体，避免破坏标签
         const chars = newContent.split('');
         for (const char of chars) {
             charQueue.push(char);
         }
 
-        // 如果当前没有在打字，开始打字
         if (!isTyping && currentStreamController) {
             if (currentStreamController.timeout) {
                 clearTimeout(currentStreamController.timeout);
@@ -79,7 +81,8 @@ async function sendMessage() {
 
     currentStreamController = {
         completed: false,
-        timeout: null
+        timeout: null,
+        eventSource: null
     };
 
     try {
@@ -87,12 +90,12 @@ async function sendMessage() {
         console.log('流式请求URL:', url);
 
         eventSource = new EventSource(url);
+        currentStreamController.eventSource = eventSource;
 
         eventSource.onopen = function() {
             console.log('SSE连接已打开');
         };
 
-        // 监听 message 事件
         eventSource.addEventListener('message', function(event) {
             console.log('收到数据块:', event.data);
 
@@ -102,37 +105,32 @@ async function sendMessage() {
 
             if (event.data && event.data !== '') {
                 fullReply += event.data;
-                // 将数据块加入队列进行逐字显示
                 addToQueue(event.data);
             }
         });
 
-        // 监听 complete 事件
         eventSource.addEventListener('complete', function(event) {
             console.log('流式对话完成');
-            eventSource.close();
 
             if (currentStreamController) {
                 currentStreamController.completed = true;
-                // 等待队列中的字符显示完毕
-                const checkQueue = () => {
+
+                // 等待队列清空后移除光标
+                const waitForQueue = () => {
                     if (charQueue.length === 0 && !isTyping) {
                         finalizeAIMessage(aiMessageDiv);
+                        if (eventSource) eventSource.close();
                         currentStreamController = null;
                     } else {
-                        setTimeout(checkQueue, 100);
+                        setTimeout(waitForQueue, 100);
                     }
                 };
-                checkQueue();
-            }
-
-            if (!fullReply) {
-                updateAIMessage(aiMessageDiv, '抱歉，没有收到回复，请稍后再试。');
-                currentStreamController = null;
+                waitForQueue();
+            } else {
+                if (eventSource) eventSource.close();
             }
         });
 
-        // 监听 error 事件
         eventSource.addEventListener('error', function(event) {
             console.error('SSE错误:', event);
             if (eventSource && eventSource.readyState !== EventSource.CLOSED) {
@@ -141,16 +139,17 @@ async function sendMessage() {
             if (!fullReply) {
                 updateAIMessage(aiMessageDiv, '抱歉，服务出现异常，请稍后再试。');
             }
+            finalizeAIMessage(aiMessageDiv);
             currentStreamController = null;
         });
 
-        // 设置超时
         setTimeout(() => {
             if (eventSource && eventSource.readyState !== EventSource.CLOSED) {
                 eventSource.close();
                 if (!fullReply) {
                     updateAIMessage(aiMessageDiv, '请求超时，请稍后再试。');
                 }
+                finalizeAIMessage(aiMessageDiv);
                 currentStreamController = null;
             }
         }, 60000);
@@ -159,6 +158,7 @@ async function sendMessage() {
         console.error('发送消息错误:', error);
         if (eventSource) eventSource.close();
         updateAIMessage(aiMessageDiv, '网络错误，请稍后再试。');
+        finalizeAIMessage(aiMessageDiv);
         currentStreamController = null;
     }
 }
@@ -185,17 +185,21 @@ function updateAIMessage(messageDiv, content) {
 
         // 显示内容并添加光标
         const formattedContent = escapeHtml(content).replace(/\n/g, '<br>');
-        let cleanContent = formattedContent.replace(/<span class="typing-cursor">\|<\/span>/g, '');
-        contentDiv.innerHTML = cleanContent + '<span class="typing-cursor">|</span>';
+        // 移除所有可能残留的光标
+        let cleanContent = formattedContent.replace(/<span class="typing-cursor">[^<]*<\/span>/g, '');
+        contentDiv.innerHTML = cleanContent + '<span class="typing-cursor"></span>';
         scrollToBottom();
     }
 }
 
-// 完成消息后移除光标
+// 完成消息后移除光标（彻底移除）
 function finalizeAIMessage(messageDiv) {
     const contentDiv = messageDiv.querySelector('.message-content');
     if (contentDiv) {
-        contentDiv.innerHTML = contentDiv.innerHTML.replace('<span class="typing-cursor">|</span>', '');
+        // 移除所有光标元素
+        contentDiv.innerHTML = contentDiv.innerHTML.replace(/<span class="typing-cursor"><\/span>/g, '');
+        // 也移除可能带有内容的版本
+        contentDiv.innerHTML = contentDiv.innerHTML.replace(/<span class="typing-cursor">[^<]*<\/span>/g, '');
     }
 }
 

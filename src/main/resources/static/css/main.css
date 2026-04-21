@@ -399,14 +399,16 @@ body {
     .message-content { max-width: 85%; }
 }
 
+/* 打字光标动画 - 更美观的版本 */
 .typing-cursor {
     display: inline-block;
     width: 2px;
-    height: 1em;
-    background-color: #333;
+    height: 1.2em;
+    background-color: #667eea;  /* 改为主题色 */
     margin-left: 2px;
     animation: blink 1s step-end infinite;
     vertical-align: middle;
+    border-radius: 1px;  /* 圆角 */
 }
 
 @keyframes blink {
@@ -414,12 +416,23 @@ body {
     50% { opacity: 0; }
 }
 
+/* 思考中动画 */
 .thinking {
     color: #999;
     font-style: italic;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
 }
 
 .dots {
+    display: inline-block;
+    min-width: 24px;
+    text-align: left;
+}
+
+.dots::after {
+    content: "...";
     animation: dots 1.5s step-end infinite;
 }
 
