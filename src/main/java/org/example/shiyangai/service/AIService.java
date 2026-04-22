@@ -560,14 +560,38 @@ public class AIService {
 
         // ========== 一周饮食统计 ==========
         if (!weekRecords.isEmpty()) {
+            sb.append("\n【用户近7日详细饮食记录】\n");
+            // 按日期分组显示
+            Map<LocalDate, List<DietRecord>> recordsByDay = weekRecords.stream()
+                    .collect(Collectors.groupingBy(r -> r.getRecordDate().toLocalDate()));
+
+            for (Map.Entry<LocalDate, List<DietRecord>> entry : recordsByDay.entrySet()) {
+                sb.append(entry.getKey().toString()).append("：\n");
+                for (DietRecord record : entry.getValue()) {
+                    String mealName = getMealName(record.getMealType());
+                    sb.append(String.format("  - %s：%s %sg（评分：%d/100）\n",
+                            mealName, record.getFoodName(),
+                            record.getGrams() != null ? record.getGrams() : 0,
+                            record.getHealthScore()));
+                }
+            }
+
+            // 添加饮食模式分析
             double avgScore = weekRecords.stream().mapToInt(DietRecord::getHealthScore).average().orElse(0);
-            sb.append(String.format("\n【最近一周饮食健康评分】平均：%.0f/100\n", avgScore));
-            if (avgScore < 60) {
-                sb.append("⚠️ 用户最近饮食不太健康，需要给出明确的改善建议。\n");
-            } else if (avgScore < 80) {
-                sb.append("✓ 用户饮食基本健康，可以给出优化建议。\n");
-            } else {
-                sb.append("🎉 用户饮食很健康，继续保持并给予鼓励。\n");
+            sb.append(String.format("\n【饮食分析】平均健康评分：%.0f/100\n", avgScore));
+
+            // 检查是否有规律性问题
+            boolean hasBreakfast = weekRecords.stream().anyMatch(r -> "BREAKFAST".equals(r.getMealType()));
+            if (!hasBreakfast) {
+                sb.append("⚠️ 用户本周没有记录早餐，可能有不规律吃早餐的习惯\n");
+            }
+
+            // 检查蔬菜摄入
+            boolean hasVeggies = weekRecords.stream().anyMatch(r ->
+                    r.getFoodName().contains("蔬菜") || r.getFoodName().contains("青菜") ||
+                            r.getFoodName().contains("西兰花") || r.getFoodName().contains("菠菜"));
+            if (!hasVeggies) {
+                sb.append("⚠️ 用户本周蔬菜摄入较少，建议推荐蔬菜类食物\n");
             }
         }
 

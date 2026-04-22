@@ -84,6 +84,7 @@ function switchPanel(panelName) {
         case 'diet':
             if (typeof renderDietPanel === 'function') renderDietPanel();
             if (typeof loadTodayRecords === 'function') loadTodayRecords();
+            if (typeof loadWeekReport === 'function') loadWeekReport();
             break;
         case 'sleep':
             if (typeof renderSleepPanel === 'function') renderSleepPanel();

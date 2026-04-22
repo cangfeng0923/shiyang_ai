@@ -16,14 +16,10 @@ import java.util.Map;
 @RequestMapping("/api/diet")
 @RequiredArgsConstructor
 @CrossOrigin
-//饮食记录接口
 public class DietController {
 
     private final DietRecordService dietRecordService;
 
-    /**
-     * 添加饮食记录
-     */
     @PostMapping("/record")
     public Map<String, Object> addRecord(@RequestBody DietRecord record) {
         dietRecordService.addRecord(record);
@@ -37,8 +33,36 @@ public class DietController {
     }
 
     /**
-     * 获取今日饮食记录
+     * 更新饮食记录
      */
+    @PutMapping("/record/{id}")
+    public Map<String, Object> updateRecord(@PathVariable String id, @RequestBody DietRecord record) {
+        record.setId(id);
+        boolean success = dietRecordService.updateRecord(record);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", success);
+        response.put("message", success ? "更新成功" : "更新失败");
+        if (success) {
+            response.put("healthScore", record.getHealthScore());
+            response.put("suggestions", record.getSuggestions());
+        }
+        return response;
+    }
+
+    /**
+     * 删除饮食记录
+     */
+    @DeleteMapping("/record/{id}")
+    public Map<String, Object> deleteRecord(@PathVariable String id, @RequestParam String userId) {
+        boolean success = dietRecordService.deleteRecord(id, userId);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", success);
+        response.put("message", success ? "删除成功" : "删除失败");
+        return response;
+    }
+
     @GetMapping("/today/{userId}")
     public Map<String, Object> getTodayRecords(@PathVariable String userId) {
         List<DietRecord> records = dietRecordService.getTodayRecords(userId);
@@ -50,9 +74,6 @@ public class DietController {
         return response;
     }
 
-    /**
-     * 获取指定日期记录
-     */
     @GetMapping("/records/{userId}")
     public Map<String, Object> getRecordsByDate(@PathVariable String userId,
                                                 @RequestParam String date) {
@@ -66,9 +87,6 @@ public class DietController {
         return response;
     }
 
-    /**
-     * 获取一周记录
-     */
     @GetMapping("/week/{userId}")
     public Map<String, Object> getWeekRecords(@PathVariable String userId) {
         List<DietRecord> records = dietRecordService.getWeekRecords(userId);
@@ -80,9 +98,6 @@ public class DietController {
         return response;
     }
 
-    /**
-     * 获取今日饮食报告
-     */
     @GetMapping("/report/{userId}")
     public Map<String, Object> getDailyReport(@PathVariable String userId,
                                               @RequestParam(required = false) String constitution) {
