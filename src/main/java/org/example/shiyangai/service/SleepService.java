@@ -147,4 +147,26 @@ public class SleepService {
 
         return sb.toString();
     }
+
+    /**
+     * 更新睡眠记录
+     */
+    public boolean updateSleepRecord(SleepRecord record) {
+        record.setCreateTime(LocalDateTime.now());
+        int result = sleepRecordMapper.updateById(record);
+        log.info("更新睡眠记录: id={}, userId={}", record.getId(), record.getUserId());
+        return result > 0;
+    }
+
+    /**
+     * 删除睡眠记录
+     */
+    public boolean deleteSleepRecord(String id, String userId) {
+        LambdaQueryWrapper<SleepRecord> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(SleepRecord::getId, id)
+                .eq(SleepRecord::getUserId, userId);
+        int result = sleepRecordMapper.delete(wrapper);
+        log.info("删除睡眠记录: id={}, userId={}, result={}", id, userId, result > 0);
+        return result > 0;
+    }
 }

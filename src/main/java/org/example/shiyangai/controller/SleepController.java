@@ -93,4 +93,34 @@ public class SleepController {
         response.put("report", report);
         return response;
     }
+
+    /**
+     * 更新睡眠记录
+     */
+    @PutMapping("/record/{id}")
+    public Map<String, Object> updateRecord(@PathVariable String id, @RequestBody SleepRecord record) {
+        record.setId(id);
+        boolean success = sleepService.updateSleepRecord(record);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", success);
+        response.put("message", success ? "更新成功" : "更新失败");
+        if (success) {
+            response.put("sleepScore", sleepService.calculateSleepScore(record));
+        }
+        return response;
+    }
+
+    /**
+     * 删除睡眠记录
+     */
+    @DeleteMapping("/record/{id}")
+    public Map<String, Object> deleteRecord(@PathVariable String id, @RequestParam String userId) {
+        boolean success = sleepService.deleteSleepRecord(id, userId);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", success);
+        response.put("message", success ? "删除成功" : "删除失败");
+        return response;
+    }
 }
