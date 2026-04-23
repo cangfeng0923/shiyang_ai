@@ -318,3 +318,34 @@
     background: #cbd5e1;
     transform: translateY(-1px);
 }
+
+
+/* 雷达图容器样式 */
+.radar-chart-container {
+    position: relative;
+    height: 280px;
+    width: 100%;
+    margin: 0 auto;
+}
+
+@media (max-width: 640px) {
+    .radar-chart-container {
+        height: 240px;
+    }
+
+    .chart-legend {
+        font-size: 0.6rem;
+        gap: 8px;
+    }
+}
+
+/* 图表说明文字 */
+.chart-note {
+    font-size: 0.7rem;
+    color: #666;
+    margin-top: 12px;
+    text-align: center;
+    padding: 8px;
+    background: #f8f9fc;
+    border-radius: 8px;
+}

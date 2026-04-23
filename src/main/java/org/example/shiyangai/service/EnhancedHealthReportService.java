@@ -28,6 +28,7 @@ public class EnhancedHealthReportService {
     private final HealthProfileService healthProfileService;
     private final DynamicSolarTermService solarTermService;
     private final FoodDataCrawler foodDataCrawler;
+    private final NutritionAnalysisService nutritionAnalysisService;
 
     /**
      * 生成增强版综合健康报告（Phase 1: 饮食维度）
@@ -207,49 +208,94 @@ public class EnhancedHealthReportService {
     private Map<String, Object> analyzeDietaryRisks(List<DietRecord> records) {
         Map<String, Object> risks = new HashMap<>();
 
-        // 计算各项营养指标
-        double totalCalories = records.stream().mapToDouble(r -> r.getCalories() != null ? r.getCalories() : 0).sum();
-        double avgCaloriesPerDay = totalCalories / 7.0; // 假设一周7天
+        // 计算记录天数
+        int dayCount = (int) records.stream()
+                .map(r -> r.getRecordDate().toLocalDate())
+                .distinct()
+                .count();
+        if (dayCount == 0) dayCount = 1;
 
-        // 简化版风险分析（实际应更复杂）
+        // 使用营养分析服务
+        NutritionAnalysisService.FiberAnalysisResult fiber = nutritionAnalysisService.analyzeFiberIntake(records, dayCount);
+        NutritionAnalysisService.SodiumAnalysisResult sodium = nutritionAnalysisService.analyzeSodiumIntake(records, dayCount);
+        NutritionAnalysisService.SugarAnalysisResult sugar = nutritionAnalysisService.analyzeSugarIntake(records, dayCount);
+        NutritionAnalysisService.RedMeatAnalysisResult redMeat = nutritionAnalysisService.analyzeRedMeatIntake(records, dayCount);
+
         List<String> identifiedRisks = new ArrayList<>();
 
-        if (avgCaloriesPerDay > 2500) {
-            identifiedRisks.add("热量摄入超标（置信度: 85%）- 建议控制在2000kcal/天");
-        }
-        if (avgCaloriesPerDay < 1200) {
-            identifiedRisks.add("热量摄入不足（置信度: 80%）- 建议增加营养摄入");
-        }
-
-        // 分析食物类型分布
-        long processedFoods = records.stream()
-                .filter(r -> r.getFoodName().contains("加工") || r.getFoodName().contains("零食") ||
-                        r.getFoodName().contains("饮料") || r.getFoodName().contains("糖果"))
-                .count();
-
-        if (processedFoods > records.size() * 0.3) {
-            identifiedRisks.add("加工食品比例过高（置信度: 75%）- 建议增加天然食物比例");
+        // 膳食纤维风险
+        if (fiber.isSevereInsufficient) {
+            identifiedRisks.add("⚠️ **膳食纤维严重不足**（" + String.format("%.0f", fiber.avgFiber) + "g/天，建议≥25g/天）\n" +
+                    "   - 健康风险：便秘、肠道菌群失调、结直肠癌风险增加\n" +
+                    "   - 置信度：85%\n" +
+                    "   - 建议：每天增加1/3全谷物，蔬菜摄入达300-500g/天");
+        } else if (fiber.isInsufficient) {
+            identifiedRisks.add("📌 **膳食纤维摄入不足**（" + String.format("%.0f", fiber.avgFiber) + "g/天，建议≥25g/天）\n" +
+                    "   - 置信度：75%\n" +
+                    "   - 建议：增加燕麦、菌菇、豆类、绿叶蔬菜摄入");
         }
 
-        // 分析烹饪方式
-        long friedFoods = records.stream()
-                .filter(r -> r.getFoodName().contains("炸") || r.getFoodName().contains("煎") ||
-                        r.getFoodName().contains("烤"))
-                .count();
-
-        if (friedFoods > records.size() * 0.4) {
-            identifiedRisks.add("油炸食品摄入过多（置信度: 70%）- 建议增加蒸煮类食物");
+        // 钠摄入风险
+        if (sodium.isSevereExceeded) {
+            identifiedRisks.add("⚠️ **钠摄入严重超标**（约" + String.format("%.0f", sodium.avgSodium) + "mg/天，相当于" +
+                    String.format("%.1f", sodium.avgSodium / 400) + "g盐）\n" +
+                    "   - 健康风险：高血压、心血管疾病、肾脏负担增加\n" +
+                    "   - 参考依据：《中国高血压防治指南2018》推荐<2000mg/天\n" +
+                    "   - 置信度：90%\n" +
+                    "   - 建议：每天食盐控制在5g内，连续3天早晨测血压");
+        } else if (sodium.isExceeded) {
+            identifiedRisks.add("📌 **钠摄入偏高**（约" + String.format("%.0f", sodium.avgSodium) + "mg/天）\n" +
+                    "   - 健康风险：血压健康需关注\n" +
+                    "   - 置信度：80%\n" +
+                    "   - 建议：减少外卖、加工食品，烹饪晚放盐");
         }
+
+        // 糖摄入风险
+        if (sugar.isExceeded) {
+            identifiedRisks.add("⚠️ **添加糖摄入超标**（" + String.format("%.0f", sugar.avgSugar) + "g/天，WHO建议<50g/天）\n" +
+                    "   - 健康风险：糖尿病前期、肥胖、龋齿风险增加\n" +
+                    "   - 参考依据：WHO《成人和儿童糖摄入量指南》2015\n" +
+                    "   - 置信度：85%\n" +
+                    "   - 建议：避免含糖饮料，建议检查空腹血糖");
+        } else if (sugar.isHigh) {
+            identifiedRisks.add("📌 **添加糖摄入偏高**（" + String.format("%.0f", sugar.avgSugar) + "g/天，WHO建议最好<25g/天）\n" +
+                    "   - 置信度：75%\n" +
+                    "   - 建议：减少奶茶、可乐，选择无糖替代品");
+        }
+
+        // 红肉风险
+        if (redMeat.riskLevel.equals("high")) {
+            identifiedRisks.add("⚠️ **红肉摄入过多**（" + String.format("%.0f", redMeat.avgRedMeat) + "g/天）\n" +
+                    "   - 健康风险：结直肠癌风险略增（参考依据：IARC）\n" +
+                    "   - 置信度：70%\n" +
+                    "   - 建议：每周红肉控制在500g内，增加膳食纤维平衡");
+            if (redMeat.totalProcessedMeat > 0) {
+                identifiedRisks.add("⚠️ **加工肉制品摄入**（本周共" + String.format("%.0f", redMeat.totalProcessedMeat) + "g）\n" +
+                        "   - 健康风险：WHO将加工肉制品列为1类致癌物\n" +
+                        "   - 建议：尽量少吃或不吃香肠、培根、火腿等");
+            }
+        } else if (redMeat.riskLevel.equals("medium")) {
+            identifiedRisks.add("📌 **红肉摄入偏高**（" + String.format("%.0f", redMeat.avgRedMeat) + "g/天）\n" +
+                    "   - 建议：适当减少红肉，增加鱼和禽肉");
+        }
+
+        // 计算其他营养指标
+        double totalCalories = records.stream().mapToDouble(r -> {
+            NutritionAnalysisService.FoodNutrition nutrition = nutritionAnalysisService.getFoodNutrition(r.getFoodName());
+            return r.getGrams() != null ? nutrition.calories * r.getGrams() / 100 : 0;
+        }).sum();
+        double avgCaloriesPerDay = totalCalories / dayCount;
 
         risks.put("identifiedRisks", identifiedRisks);
         risks.put("totalCalories", totalCalories);
         risks.put("avgCaloriesPerDay", avgCaloriesPerDay);
-        risks.put("processedFoodRatio", processedFoods / (double) records.size());
-        risks.put("friedFoodRatio", friedFoods / (double) records.size());
+        risks.put("fiberResult", fiber);
+        risks.put("sodiumResult", sodium);
+        risks.put("sugarResult", sugar);
+        risks.put("redMeatResult", redMeat);
 
         return risks;
     }
-
     /**
      * 分析时序模式 (Phase 1)
      */
@@ -318,59 +364,68 @@ public class EnhancedHealthReportService {
     private Map<String, Object> compareWithGuidelines(List<DietRecord> records) {
         Map<String, Object> comparison = new HashMap<>();
 
-        // 1. 计算实际摄入量（需要从食物库获取营养数据）
-        double avgVegetables = 0;
-        double avgFruit = 0;
-        double avgProtein = 0;
-        double avgFiber = 0;
-        Set<String> uniqueFoods = new HashSet<>();
-
         int dayCount = (int) records.stream()
                 .map(r -> r.getRecordDate().toLocalDate())
                 .distinct()
                 .count();
-
         if (dayCount == 0) dayCount = 1;
+
+        // 计算各项实际摄入
+        double totalVegetables = 0;
+        double totalFruit = 0;
+        double totalProtein = 0;
+        double totalWater = 0;
+        Set<String> uniqueFoods = new HashSet<>();
 
         for (DietRecord record : records) {
             uniqueFoods.add(record.getFoodName());
+            String foodName = record.getFoodName().toLowerCase();
+            double grams = record.getGrams() != null ? record.getGrams() : 0;
 
-            // 从 FoodDataCrawler 获取营养成分
-            IngredientInfo nutrition = foodDataCrawler.getFoodInfo(record.getFoodName());
-            if (nutrition != null) {
-                // 根据食物类型累加（简化版，实际需要更精确的分类）
-                String foodName = record.getFoodName().toLowerCase();
-                if (foodName.contains("菜") || foodName.contains("蔬")) {
-                    avgVegetables += record.getGrams() != null ? record.getGrams() : 0;
-                }
-                if (foodName.contains("肉") || foodName.contains("蛋") || foodName.contains("鱼")) {
-                    avgProtein += (record.getGrams() != null ? record.getGrams() : 0) * 0.2; // 粗略估算
-                }
+            NutritionAnalysisService.FoodNutrition nutrition = nutritionAnalysisService.getFoodNutrition(record.getFoodName());
+
+            // 估算蛋白质
+            totalProtein += nutrition.protein * grams / 100;
+
+            // 识别蔬菜
+            if (foodName.contains("菜") || foodName.contains("蔬") ||
+                    foodName.contains("西兰花") || foodName.contains("菠菜")) {
+                totalVegetables += grams;
+            }
+
+            // 识别水果
+            if (foodName.contains("果") || foodName.contains("梨") ||
+                    foodName.contains("桃") || foodName.contains("莓")) {
+                totalFruit += grams;
+            }
+
+            // 估算水分
+            if (foodName.contains("水") || foodName.contains("汤")) {
+                totalWater += grams * 0.9;
             }
         }
 
-        avgVegetables = avgVegetables / dayCount;
-        avgProtein = avgProtein / dayCount;
+        double avgVegetables = totalVegetables / dayCount;
+        double avgFruit = totalFruit / dayCount;
+        double avgProtein = totalProtein / dayCount;
+        double avgWater = totalWater / dayCount;
+        int foodTypeCount = uniqueFoods.size();
 
-        // 2. 膳食指南推荐值
-        Map<String, Double> recommendations = Map.of(
-                "vegetables", 300.0,
-                "fruit", 200.0,
-                "protein", 60.0,
-                "food_types", 12.0
+        // 膳食指南推荐值
+        Map<String, Double> recommendations = NutritionAnalysisService.RECOMMENDATIONS;
+
+        Map<String, Double> actual = Map.of(
+                "vegetables", avgVegetables,
+                "fruit", avgFruit,
+                "protein", avgProtein,
+                "water", avgWater,
+                "food_types", (double) foodTypeCount
         );
 
-        comparison.put("actual", Map.of(
-                "vegetables", avgVegetables,
-                "fruit", 0.0,  // 需要水果识别逻辑
-                "protein", avgProtein,
-                "fiber", 0.0,   // 需要膳食纤维计算
-                "food_types", (double) uniqueFoods.size()
-        ));
-
+        comparison.put("actual", actual);
         comparison.put("recommended", recommendations);
         comparison.put("achievement_rate", calculateAchievementRate(
-                avgVegetables, 0, avgProtein, 0, 0, uniqueFoods.size()
+                avgVegetables, avgFruit, avgProtein, 0, avgWater, foodTypeCount
         ));
 
         return comparison;
@@ -403,26 +458,48 @@ public class EnhancedHealthReportService {
         @SuppressWarnings("unchecked")
         List<String> identifiedRisks = (List<String>) risks.get("identifiedRisks");
 
+        sb.append("### 📊 基于《中国居民膳食指南(2022)》的营养评估\n\n");
+
         if (identifiedRisks.isEmpty()) {
             sb.append("✅ **健康风险评估**：未发现明显饮食相关健康风险\n");
-            sb.append("您的饮食模式较为健康，继续保持！\n");
+            sb.append("您的饮食模式符合膳食指南建议，继续保持！\n");
         } else {
-            sb.append("⚠️ **识别到的健康风险**：\n");
+            sb.append("⚠️ **识别到的健康风险**：\n\n");
             for (String risk : identifiedRisks) {
-                sb.append("- ").append(risk).append("\n");
+                sb.append(risk).append("\n\n");
             }
         }
 
-        // 添加具体数值
-        sb.append("\n📊 **营养指标**：\n");
-        sb.append("- 本周总热量：").append(String.format("%.0f", (Double) risks.get("totalCalories"))).append(" kcal\n");
-        sb.append("- 日均热量：").append(String.format("%.0f", (Double) risks.get("avgCaloriesPerDay"))).append(" kcal\n");
-        sb.append("- 加工食品占比：").append(String.format("%.1f%%", (Double) risks.get("processedFoodRatio") * 100)).append("\n");
-        sb.append("- 油炸食品占比：").append(String.format("%.1f%%", (Double) risks.get("friedFoodRatio") * 100)).append("\n");
+        // 具体数值
+        sb.append("---\n");
+        sb.append("### 📈 营养摄入详情\n\n");
+        sb.append("| 指标 | 实际摄入 | 推荐值 | 状态 |\n");
+        sb.append("|------|----------|--------|------|\n");
+
+        NutritionAnalysisService.FiberAnalysisResult fiber = (NutritionAnalysisService.FiberAnalysisResult) risks.get("fiberResult");
+        sb.append(String.format("| 膳食纤维 | %.0fg/天 | ≥25g/天 | %s |\n",
+                fiber.avgFiber, fiber.avgFiber >= 25 ? "✅" : "⚠️"));
+
+        NutritionAnalysisService.SodiumAnalysisResult sodium = (NutritionAnalysisService.SodiumAnalysisResult) risks.get("sodiumResult");
+        sb.append(String.format("| 钠 | %.0fmg/天 | <2000mg/天 | %s |\n",
+                sodium.avgSodium, !sodium.isExceeded ? "✅" : "⚠️"));
+
+        NutritionAnalysisService.SugarAnalysisResult sugar = (NutritionAnalysisService.SugarAnalysisResult) risks.get("sugarResult");
+        sb.append(String.format("| 添加糖 | %.0fg/天 | <50g/天 | %s |\n",
+                sugar.avgSugar, !sugar.isExceeded ? "✅" : "⚠️"));
+
+        NutritionAnalysisService.RedMeatAnalysisResult redMeat = (NutritionAnalysisService.RedMeatAnalysisResult) risks.get("redMeatResult");
+        sb.append(String.format("| 红肉 | %.0fg/天 | <100g/天 | %s |\n\n",
+                redMeat.avgRedMeat, !redMeat.isExceeded() ? "✅" : "⚠️"));
+
+        sb.append("📖 **参考依据**：\n");
+        sb.append("- 《中国居民膳食指南(2022)》中国营养学会\n");
+        sb.append("- WHO《成人和儿童糖摄入量指南》(2015)\n");
+        sb.append("- 《中国高血压防治指南(2018年修订版)》\n");
+        sb.append("- 国际癌症研究机构(IARC)评估报告\n\n");
 
         return sb.toString();
     }
-
     /**
      * 格式化模式分析结果
      */

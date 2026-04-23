@@ -1,4 +1,12 @@
 // diet.js - 添加删除和修改功能的完整版
+// ========== 确保全局变量存在 ==========
+if (typeof API_BASE === 'undefined') {
+    var API_BASE = '';  // 使用相对路径
+}
+
+if (typeof currentUser === 'undefined') {
+    var currentUser = null;
+}
 
 let currentMeal = 'BREAKFAST';
 let foodItems = [];
@@ -480,47 +488,113 @@ async function loadWeekReport() {
     }
 }
 
+// 替换 generateWeekReportHtml 函数
 function generateWeekReportHtml(records) {
     const groupedByDate = {};
-    for (const record of records) {
-        let date = record.recordDate;
-        if (date && date.includes('T')) {
-            date = date.split('T')[0];
-        } else if (date) {
-            date = date.toString().split(' ')[0];
-        } else {
-            date = '未知日期';
-        }
 
-        if (!groupedByDate[date]) {
-            groupedByDate[date] = [];
-        }
-        groupedByDate[date].push(record);
-    }
-
+    // ========== 第一步：计算各项营养指标 ==========
     let totalScore = 0;
     let totalRecords = records.length;
     let vegetableCount = 0;
     let proteinCount = 0;
     let breakfastCount = 0;
 
+    // 新增的营养指标变量
+    let totalVegetablesGrams = 0;
+    let totalFruitGrams = 0;
+    let totalProteinGrams = 0;
+    let totalFiberGrams = 0;
+    let totalWaterMl = 0;
+    const uniqueFoods = new Set();
+
+    // 记录天数
+    const uniqueDates = new Set();
+
     for (const record of records) {
+        // 统计原有指标
         totalScore += record.healthScore || 0;
         const foodName = record.foodName || '';
+        const grams = record.grams || 0;
+
+        // 记录唯一日期
+        let date = record.recordDate;
+        if (date && date.includes('T')) {
+            date = date.split('T')[0];
+        } else if (date) {
+            date = date.toString().split(' ')[0];
+        }
+        if (date && date !== '未知日期') {
+            uniqueDates.add(date);
+        }
+
+        // 记录唯一食物
+        uniqueFoods.add(foodName);
+
+        // 蔬菜识别和克数统计
         if (foodName.includes('蔬菜') || foodName.includes('青菜') || foodName.includes('菜') ||
-            foodName.includes('西兰花') || foodName.includes('菠菜') || foodName.includes('白菜')) {
+            foodName.includes('西兰花') || foodName.includes('菠菜') || foodName.includes('白菜') ||
+            foodName.includes('西红柿') || foodName.includes('黄瓜') || foodName.includes('萝卜')) {
             vegetableCount++;
+            totalVegetablesGrams += grams;
         }
+
+        // 水果识别
+        if (foodName.includes('苹果') || foodName.includes('梨') || foodName.includes('香蕉') ||
+            foodName.includes('橙子') || foodName.includes('猕猴桃') || foodName.includes('草莓') ||
+            foodName.includes('葡萄') || foodName.includes('西瓜')) {
+            totalFruitGrams += grams;
+        }
+
+        // 蛋白质识别和克数统计
         if (foodName.includes('肉') || foodName.includes('蛋') || foodName.includes('鱼') ||
-            foodName.includes('豆腐') || foodName.includes('虾') || foodName.includes('鸡')) {
+            foodName.includes('豆腐') || foodName.includes('虾') || foodName.includes('鸡') ||
+            foodName.includes('牛奶') || foodName.includes('豆浆')) {
             proteinCount++;
+            // 简单估算蛋白质含量（实际克数 * 0.2 约等于蛋白质克数）
+            totalProteinGrams += grams * 0.2;
         }
+
+        // 膳食纤维估算（蔬菜水果含纤维较多）
+        if (foodName.includes('蔬菜') || foodName.includes('青菜') || foodName.includes('西兰花') ||
+            foodName.includes('菠菜') || foodName.includes('苹果') || foodName.includes('香蕉') ||
+            foodName.includes('燕麦') || foodName.includes('玉米') || foodName.includes('粗粮')) {
+            totalFiberGrams += grams * 0.03; // 假设纤维含量约3%
+        }
+
+        // 水分估算
+        if (foodName.includes('水') || foodName.includes('汤') || foodName.includes('牛奶') ||
+            foodName.includes('豆浆') || foodName.includes('茶') || foodName.includes('咖啡')) {
+            totalWaterMl += grams * 0.9;
+        }
+
         if (record.mealType === 'BREAKFAST') {
             breakfastCount++;
         }
+
+        // 按日期分组
+        let recordDate = record.recordDate;
+        if (recordDate && recordDate.includes('T')) {
+            recordDate = recordDate.split('T')[0];
+        } else if (recordDate) {
+            recordDate = recordDate.toString().split(' ')[0];
+        } else {
+            recordDate = '未知日期';
+        }
+
+        if (!groupedByDate[recordDate]) {
+            groupedByDate[recordDate] = [];
+        }
+        groupedByDate[recordDate].push(record);
     }
 
+    const dayCount = uniqueDates.size || 1;
     const avgScore = totalRecords > 0 ? (totalScore / totalRecords).toFixed(0) : 0;
+    const avgVegetables = totalVegetablesGrams / dayCount;
+    const avgFruit = totalFruitGrams / dayCount;
+    const avgProtein = totalProteinGrams / dayCount;
+    const avgFiber = totalFiberGrams / dayCount;
+    const avgWater = totalWaterMl / dayCount;
+    const foodTypeCount = uniqueFoods.size;
 
     let scoreLevel = '';
     let scoreColor = '';
@@ -534,6 +608,12 @@ function generateWeekReportHtml(records) {
         scoreLevel = '需改进';
         scoreColor = '#ef4444';
     }
+
+    // 计算蔬菜、蛋白质、纤维的达标状态
+    const vegStatus = avgVegetables >= 300 ? '✅ 达标' : '⚠️ 建议增加';
+    const proteinStatus = avgProtein >= 60 ? '✅ 充足' : '⚠️ 建议增加';
+    const fiberStatus = avgFiber >= 25 ? '✅ 充足' : '⚠️ 建议增加';
+    const fruitStatus = avgFruit >= 200 ? '✅ 达标' : '⚠️ 建议增加';
 
     let html = `
         <div style="padding: 8px;">
@@ -564,19 +644,72 @@ function generateWeekReportHtml(records) {
                 <div style="display: flex; gap: 16px; flex-wrap: wrap;">
                     <div style="flex: 1; background: #f0f2f5; padding: 10px; border-radius: 8px;">
                         <div style="font-size: 0.7rem; color: #666;">🥬 蔬菜摄入</div>
-                        <div style="font-size: 1.2rem; font-weight: bold;">${vegetableCount}次</div>
-                        <div style="font-size: 0.7rem; color: ${vegetableCount >= 7 ? '#10b981' : '#f59e0b'};">${vegetableCount >= 7 ? '✅ 达标' : '⚠️ 建议增加'}</div>
+                        <div style="font-size: 1.2rem; font-weight: bold;">${avgVegetables.toFixed(0)}g/天</div>
+                        <div style="font-size: 0.7rem; color: ${avgVegetables >= 300 ? '#10b981' : '#f59e0b'};">${vegStatus}</div>
+                    </div>
+                    <div style="flex: 1; background: #f0f2f5; padding: 10px; border-radius: 8px;">
+                        <div style="font-size: 0.7rem; color: #666;">🍎 水果摄入</div>
+                        <div style="font-size: 1.2rem; font-weight: bold;">${avgFruit.toFixed(0)}g/天</div>
+                        <div style="font-size: 0.7rem; color: ${avgFruit >= 200 ? '#10b981' : '#f59e0b'};">${fruitStatus}</div>
                     </div>
                     <div style="flex: 1; background: #f0f2f5; padding: 10px; border-radius: 8px;">
                         <div style="font-size: 0.7rem; color: #666;">🥩 蛋白质摄入</div>
-                        <div style="font-size: 1.2rem; font-weight: bold;">${proteinCount}次</div>
-                        <div style="font-size: 0.7rem; color: ${proteinCount >= 7 ? '#10b981' : '#f59e0b'};">${proteinCount >= 7 ? '✅ 充足' : '⚠️ 建议增加'}</div>
+                        <div style="font-size: 1.2rem; font-weight: bold;">${avgProtein.toFixed(0)}g/天</div>
+                        <div style="font-size: 0.7rem; color: ${avgProtein >= 60 ? '#10b981' : '#f59e0b'};">${proteinStatus}</div>
                     </div>
                     <div style="flex: 1; background: #f0f2f5; padding: 10px; border-radius: 8px;">
-                        <div style="font-size: 0.7rem; color: #666;">🌅 早餐次数</div>
-                        <div style="font-size: 1.2rem; font-weight: bold;">${breakfastCount}次</div>
-                        <div style="font-size: 0.7rem; color: ${breakfastCount >= 5 ? '#10b981' : '#f59e0b'};">${breakfastCount >= 5 ? '✅ 规律' : '⚠️ 建议规律吃早餐'}</div>
+                        <div style="font-size: 0.7rem; color: #666;">🌾 膳食纤维</div>
+                        <div style="font-size: 1.2rem; font-weight: bold;">${avgFiber.toFixed(0)}g/天</div>
+                        <div style="font-size: 0.7rem; color: ${avgFiber >= 25 ? '#10b981' : '#f59e0b'};">${fiberStatus}</div>
                     </div>
+                </div>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <h4 style="margin-bottom: 12px;">🥗 膳食指南对比（中国居民膳食指南2022）</h4>
+                <div style="background: #f8f9fc; border-radius: 8px; overflow: hidden;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+                        <thead>
+                            <tr style="background: #eef2ff;">
+                                <th style="padding: 8px; text-align: left;">指标</th>
+                                <th style="padding: 8px; text-align: left;">实际摄入</th>
+                                <th style="padding: 8px; text-align: left;">推荐值</th>
+                                <th style="padding: 8px; text-align: center;">状态</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr style="border-bottom: 1px solid #e2e8f0;">
+                                <td style="padding: 8px;">🥬 蔬菜</td>
+                                <td style="padding: 8px;">${avgVegetables.toFixed(0)}g/天</td>
+                                <td style="padding: 8px;">300-500g/天</td>
+                                <td style="padding: 8px; text-align: center;">${avgVegetables >= 300 ? '✅' : '⚠️'}</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #e2e8f0;">
+                                <td style="padding: 8px;">🍎 水果</td>
+                                <td style="padding: 8px;">${avgFruit.toFixed(0)}g/天</td>
+                                <td style="padding: 8px;">200-350g/天</td>
+                                <td style="padding: 8px; text-align: center;">${avgFruit >= 200 ? '✅' : '⚠️'}</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #e2e8f0;">
+                                <td style="padding: 8px;">🥩 蛋白质</td>
+                                <td style="padding: 8px;">${avgProtein.toFixed(0)}g/天</td>
+                                <td style="padding: 8px;">60-75g/天</td>
+                                <td style="padding: 8px; text-align: center;">${avgProtein >= 60 ? '✅' : '⚠️'}</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #e2e8f0;">
+                                <td style="padding: 8px;">🌾 膳食纤维</td>
+                                <td style="padding: 8px;">${avgFiber.toFixed(0)}g/天</td>
+                                <td style="padding: 8px;">25-30g/天</td>
+                                <td style="padding: 8px; text-align: center;">${avgFiber >= 25 ? '✅' : '⚠️'}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px;">🍽️ 食物多样性</td>
+                                <td style="padding: 8px;">${foodTypeCount}种/周</td>
+                                <td style="padding: 8px;">≥12种/周</td>
+                                <td style="padding: 8px; text-align: center;">${foodTypeCount >= 12 ? '✅' : '⚠️'}</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
             
@@ -590,11 +723,21 @@ function generateWeekReportHtml(records) {
         const dayTotalScore = dayRecords.reduce((sum, r) => sum + (r.healthScore || 0), 0);
         const dayAvgScore = (dayTotalScore / dayRecords.length).toFixed(0);
 
+        // 计算当日蔬菜摄入
+        let dayVegGrams = 0;
+        for (const record of dayRecords) {
+            const foodName = record.foodName || '';
+            if (foodName.includes('蔬菜') || foodName.includes('青菜') || foodName.includes('菜')) {
+                dayVegGrams += record.grams || 0;
+            }
+        }
+
         html += `
             <div style="margin-bottom: 16px; border-left: 3px solid #667eea; padding-left: 12px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
                     <strong>📅 ${date}</strong>
                     <span style="display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 0.7rem; font-weight: 500; background: #dbeafe; color: #1e40af;">评分 ${dayAvgScore}</span>
+                    ${dayVegGrams > 0 ? `<span style="font-size: 0.7rem; color: #666;">🥬 ${dayVegGrams}g蔬菜</span>` : ''}
                 </div>
         `;
 
@@ -617,13 +760,178 @@ function generateWeekReportHtml(records) {
             <div style="margin-top: 20px; padding: 12px; background: #eef2ff; border-radius: 8px;">
                 <div style="font-size: 0.8rem; color: #667eea;">💡 饮食建议</div>
                 <div style="font-size: 0.8rem; margin-top: 8px;">
-                    ${generateAdviceText(avgScore, vegetableCount, breakfastCount, proteinCount)}
+                    ${generateAdviceTextEnhanced(avgScore, avgVegetables, avgFruit, avgProtein, avgFiber, breakfastCount, foodTypeCount)}
                 </div>
             </div>
         </div>
     `;
 
+    // 计算雷达图数据百分比
+    const vegPercent = Math.min(100, (avgVegetables / 300 * 100)).toFixed(0);
+    const fruitPercent = Math.min(100, (avgFruit / 200 * 100)).toFixed(0);
+    const proteinPercent = Math.min(100, (avgProtein / 60 * 100)).toFixed(0);
+    const fiberPercent = Math.min(100, (avgFiber / 25 * 100)).toFixed(0);
+    const waterPercent = Math.min(100, (avgWater / 1500 * 100)).toFixed(0);
+    const diversityPercent = Math.min(100, (foodTypeCount / 12 * 100)).toFixed(0);
+
+    // 生成唯一ID用于雷达图
+    const radarChartId = 'radarChart_' + Date.now();
+
+    // 雷达图HTML部分 - 替换原来的JSON显示
+    html += `
+        <div style="margin-top: 20px; padding: 12px; background: #f0f2f5; border-radius: 12px;">
+            <h4 style="margin-bottom: 12px;">📐 膳食均衡雷达图</h4>
+            <div style="position: relative; height: 280px; width: 100%; margin: 0 auto;">
+                <canvas id="${radarChartId}" style="max-height: 250px; width: 100%;"></canvas>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 12px; font-size: 0.7rem;">
+                <div><span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #667eea; margin-right: 4px;"></span> 蔬菜 300g/天</div>
+                <div><span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #f59e0b; margin-right: 4px;"></span> 水果 200g/天</div>
+                <div><span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #10b981; margin-right: 4px;"></span> 蛋白质 60g/天</div>
+                <div><span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #ef4444; margin-right: 4px;"></span> 膳食纤维 25g/天</div>
+                <div><span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #8b5cf6; margin-right: 4px;"></span> 饮水 1500ml/天</div>
+                <div><span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #ec489a; margin-right: 4px;"></span> 食物多样性 12种/周</div>
+            </div>
+            <div style="font-size: 0.7rem; color: #666; margin-top: 12px; text-align: center;">
+                💡 雷达图值 = 实际摄入/推荐值 × 100%<br>
+                📖 参考依据：《中国居民膳食指南(2022)》
+            </div>
+        </div>
+    `;
+
+    // 返回HTML后，延迟绘制雷达图
+    setTimeout(() => {
+        drawRadarChart(radarChartId, vegPercent, fruitPercent, proteinPercent, fiberPercent, waterPercent, diversityPercent);
+    }, 100);
+
     return html;
+}
+
+// 绘制雷达图的函数
+function drawRadarChart(chartId, veg, fruit, protein, fiber, water, diversity) {
+    const canvas = document.getElementById(chartId);
+    if (!canvas) return;
+
+    // 如果已经存在图表实例，先销毁
+    if (canvas.chart) {
+        canvas.chart.destroy();
+    }
+
+    const ctx = canvas.getContext('2d');
+
+    canvas.chart = new Chart(ctx, {
+        type: 'radar',
+        data: {
+            labels: ['蔬菜', '水果', '蛋白质', '膳食纤维', '饮水', '食物多样性'],
+            datasets: [{
+                label: '您的摄入达标率',
+                data: [veg, fruit, protein, fiber, water, diversity],
+                backgroundColor: 'rgba(102, 126, 234, 0.2)',
+                borderColor: '#667eea',
+                borderWidth: 2,
+                pointBackgroundColor: '#667eea',
+                pointBorderColor: '#fff',
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                fill: true
+            }, {
+                label: '推荐标准 (100%)',
+                data: [100, 100, 100, 100, 100, 100],
+                backgroundColor: 'rgba(200, 200, 200, 0.1)',
+                borderColor: '#94a3b8',
+                borderWidth: 1.5,
+                borderDash: [5, 5],
+                pointBackgroundColor: '#94a3b8',
+                pointRadius: 2,
+                fill: false
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            scales: {
+                r: {
+                    beginAtZero: true,
+                    max: 100,
+                    ticks: {
+                        stepSize: 20,
+                        callback: function(value) {
+                            return value + '%';
+                        }
+                    },
+                    grid: {
+                        color: '#e2e8f0'
+                    },
+                    pointLabels: {
+                        font: {
+                            size: 11
+                        },
+                        color: '#475569'
+                    }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.dataset.label || '';
+                            let value = context.raw;
+                            return `${label}: ${value}%`;
+                        }
+                    }
+                },
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        font: {
+                            size: 11
+                        },
+                        boxWidth: 12,
+                        usePointStyle: true
+                    }
+                }
+            }
+        }
+    });
+}
+
+
+// 增强版建议生成函数
+function generateAdviceTextEnhanced(avgScore, avgVegetables, avgFruit, avgProtein, avgFiber, breakfastCount, foodTypeCount) {
+    const advices = [];
+
+    if (avgScore < 60) {
+        advices.push('📌 本周饮食评分偏低，建议减少高油高糖食物，增加蔬菜水果摄入。');
+    } else if (avgScore < 80) {
+        advices.push('📌 饮食基本健康，继续优化营养搭配会更好。');
+    } else {
+        advices.push('🎉 饮食评分优秀！继续保持良好的饮食习惯！');
+    }
+
+    if (avgVegetables < 300) {
+        advices.push(`🥬 蔬菜摄入不足（${avgVegetables.toFixed(0)}g/天），建议每天至少吃300g绿叶蔬菜，深色蔬菜占一半。`);
+    }
+    if (avgFruit < 200) {
+        advices.push(`🍎 水果摄入不足（${avgFruit.toFixed(0)}g/天），建议每天吃200-350g新鲜水果。`);
+    }
+    if (avgProtein < 60) {
+        advices.push(`🥩 蛋白质摄入不足（${avgProtein.toFixed(0)}g/天），建议增加鸡蛋、鱼肉、豆腐等优质蛋白。`);
+    }
+    if (avgFiber < 25) {
+        advices.push(`🌾 膳食纤维不足（${avgFiber.toFixed(0)}g/天），建议增加全谷物、豆类、菌菇类食物。`);
+    }
+    if (breakfastCount < 5) {
+        advices.push(`🌅 早餐次数偏少（仅${breakfastCount}次），规律吃早餐有助于全天代谢。`);
+    }
+    if (foodTypeCount < 12) {
+        advices.push(`🍽️ 食物多样性不足（仅${foodTypeCount}种/周），建议每周摄入25种以上不同食物。`);
+    }
+
+    if (advices.length === 0) {
+        advices.push('👍 饮食结构良好，符合膳食指南建议，继续保持！');
+    }
+
+    return advices.join('<br>');
 }
 
 function generateAdviceText(avgScore, vegetableCount, breakfastCount, proteinCount) {
