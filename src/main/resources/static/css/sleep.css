@@ -273,3 +273,21 @@
         gap: 4px;
     }
 }
+
+
+/* 单选按钮组样式 */
+input[type="radio"] {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    accent-color: #667eea;
+}
+
+label:has(input[type="radio"]) {
+    transition: all 0.2s;
+}
+
+label:has(input[type="radio"]:checked) {
+    background: #e0e7ff !important;
+    transform: scale(1.02);
+}

@@ -6,9 +6,11 @@ import org.example.shiyangai.entity.DietRecord;
 import org.example.shiyangai.entity.SleepRecord;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 // FusionReportService.java - 完善版
 @Service
@@ -24,21 +26,57 @@ public class FusionReportService {
      * 生成饮食+睡眠融合报告
      */
     public String generateFusionReport(String userId, String constitution) {
-        // 1. 获取原始数据
         List<DietRecord> dietRecords = dietRecordService.getWeekRecords(userId);
         List<SleepRecord> sleepRecords = sleepService.getWeekRecords(userId);
 
-        // 2. 计算真实评分
+        if (dietRecords.isEmpty() && sleepRecords.isEmpty()) {
+            return "暂无数据，请先记录饮食和睡眠";
+        }
+
+        // 计算评分
         int dietaryScore = calculateDietaryScore(dietRecords);
         int sleepScore = calculateSleepScore(sleepRecords);
 
-        // 3. 关联分析
-        String correlationInsight = analyzeCorrelation(dietRecords, sleepRecords);
+        // 评分变化趋势（与上周对比）
+        String dietTrend = getTrendIcon(dietaryScore);
+        String sleepTrend = getTrendIcon(sleepScore);
 
-        // 4. 生成报告
-        return buildReport(dietaryScore, sleepScore, correlationInsight, dietRecords, sleepRecords);
+        StringBuilder sb = new StringBuilder();
+        sb.append("# 🌟 **本周健康画像**\n\n");
+        sb.append("📅 报告周期：").append(getWeekDateRange()).append("\n\n");
+        sb.append("🍽️ **饮食评分**：").append(dietaryScore).append("/100 (").append(dietTrend).append(")\n");
+        sb.append("😴 **睡眠评分**：").append(sleepScore).append("/100 (").append(sleepTrend).append(")\n\n");
+
+        // 关联洞察
+        sb.append("## 🔍 **关联洞察**\n\n");
+        sb.append(analyzeCorrelation(dietRecords, sleepRecords));
+
+        // 个性化建议
+        sb.append("## 💡 **个性化建议**\n\n");
+        if (dietaryScore < 70) {
+            sb.append("- 🥗 **饮食改善**：增加蔬菜摄入，减少高油高糖食物\n");
+        }
+        if (sleepScore < 70) {
+            sb.append("- 🛌 **睡眠改善**：保持规律作息，睡前1小时远离电子设备\n");
+        }
+
+        // 下周小目标
+        sb.append("\n## 🎯 **下周小目标**\n\n");
+        sb.append("- 🌙 连续3天在23:00前入睡\n");
+        sb.append("- 🥬 每天摄入至少300g蔬菜\n");
+
+        return sb.toString();
     }
 
+    private String getTrendIcon(int score) {
+        return score >= 80 ? "↑" : (score >= 60 ? "→" : "↓");
+    }
+
+    private String getWeekDateRange() {
+        LocalDate end = LocalDate.now();
+        LocalDate start = end.minusDays(6);
+        return start + " 至 " + end;
+    }
     private int calculateDietaryScore(List<DietRecord> records) {
         if (records.isEmpty()) return 0;
         return (int) records.stream()
@@ -59,49 +97,57 @@ public class FusionReportService {
     private String analyzeCorrelation(List<DietRecord> dietRecords, List<SleepRecord> sleepRecords) {
         StringBuilder sb = new StringBuilder();
 
-        // 分析1：晚餐时间与睡眠质量的关系
-        long lateDinnerCount = dietRecords.stream()
-                .filter(r -> "DINNER".equals(r.getMealType()))
-                .filter(r -> {
-                    LocalDateTime time = r.getRecordDate();
-                    return time != null && time.getHour() >= 20;
-                })
-                .count();
+        // 按日期建立睡眠数据映射
+        Map<LocalDate, SleepRecord> sleepByDate = sleepRecords.stream()
+                .collect(Collectors.toMap(SleepRecord::getRecordDate, s -> s, (s1, s2) -> s1));
 
-        if (lateDinnerCount > 0 && !sleepRecords.isEmpty()) {
-            double avgSleepScore = sleepRecords.stream()
-                    .mapToInt(sleepService::calculateSleepScore)
-                    .average()
-                    .orElse(0);
+        // 1. 晚餐时间与睡眠质量分析
+        List<LocalDate> lateDinnerDates = new ArrayList<>();
+        Map<LocalDate, Double> dinnerSleepScoreMap = new HashMap<>();
 
-            if (avgSleepScore < 70) {
-                sb.append("⚠️ **晚餐时间影响睡眠**：本周有").append(lateDinnerCount)
-                        .append("次晚餐在20:00后，您的睡眠评分为").append(String.format("%.0f", avgSleepScore))
-                        .append("分。建议晚餐提前至19:00前。\n\n");
+        for (DietRecord record : dietRecords) {
+            if ("DINNER".equals(record.getMealType())) {
+                LocalDate date = record.getRecordDate().toLocalDate();
+                int dinnerHour = record.getRecordDate().getHour();
+
+                if (dinnerHour >= 20) { // 20:00后晚餐
+                    lateDinnerDates.add(date);
+                    SleepRecord sleep = sleepByDate.get(date);
+                    if (sleep != null) {
+                        dinnerSleepScoreMap.put(date, (double) calculateSleepScore((List<SleepRecord>) sleep));
+                    }
+                }
             }
         }
 
-        // 分析2：咖啡因摄入与入睡时间的关系
-        long caffeineCount = dietRecords.stream()
-                .filter(r -> {
-                    String name = r.getFoodName();
-                    return name != null && (name.contains("咖啡") || name.contains("茶") || name.contains("可乐"));
-                })
-                .count();
+        if (lateDinnerDates.size() >= 2) {
+            double avgSleepScore = dinnerSleepScoreMap.values().stream()
+                    .mapToDouble(Double::doubleValue).average().orElse(0);
 
-        if (caffeineCount > 3 && !sleepRecords.isEmpty()) {
-            sb.append("☕ **咖啡因提醒**：本周摄入含咖啡因饮品").append(caffeineCount)
-                    .append("次，可能影响入睡。建议下午16:00后避免摄入。\n\n");
+            if (avgSleepScore < 70) {
+                sb.append("⚠️ **晚餐时间影响睡眠**：本周有").append(lateDinnerDates.size())
+                        .append("天晚餐在20:00后，当晚睡眠评分较低（平均").append(String.format("%.0f", avgSleepScore))
+                        .append("分）。\n   → 建议：晚餐提前至19:00前，如无法调整，晚餐量减少1/3。\n\n");
+            }
         }
 
-        if (sb.length() == 0) {
-            sb.append("✅ **饮食-睡眠关联**：本周未发现明显的饮食影响睡眠的问题。\n");
-            sb.append("继续保持良好的饮食习惯和作息规律。\n");
+        // 2. 连续日期分析（找出连续晚晚餐的天数）
+        if (lateDinnerDates.size() >= 3) {
+            Collections.sort(lateDinnerDates);
+            int consecutive = 1;
+            for (int i = 1; i < lateDinnerDates.size(); i++) {
+                if (lateDinnerDates.get(i).equals(lateDinnerDates.get(i-1).plusDays(1))) {
+                    consecutive++;
+                }
+            }
+            if (consecutive >= 3) {
+                sb.append("⚠️ **连续晚晚餐提醒**：您有连续").append(consecutive)
+                        .append("天晚餐在20:00后，可能形成习惯。\n   → 建议：设定21:00闹钟提醒该睡觉了。\n\n");
+            }
         }
 
         return sb.toString();
     }
-
     /**
      * 构建最终报告 - ✅ 新增方法
      */

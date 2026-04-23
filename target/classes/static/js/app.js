@@ -100,7 +100,7 @@ function switchPanel(panelName) {
             break;
         case 'report':
             if (typeof renderReportPanel === 'function') renderReportPanel();
-            if (typeof loadDailyReport === 'function') loadDailyReport();
+            if (typeof loadFusionReport === 'function') loadFusionReport();  // 改为 loadFusionReport
             break;
         default:
             if (panelName === 'chat' && typeof loadChatHistory === 'function') {
