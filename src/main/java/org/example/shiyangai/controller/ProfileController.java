@@ -14,7 +14,6 @@ import java.util.Map;
 @RequestMapping("/api/profile")
 @RequiredArgsConstructor
 @CrossOrigin
-//健康档案接口
 public class ProfileController {
 
     private final HealthProfileService profileService;
@@ -33,6 +32,7 @@ public class ProfileController {
             response.put("profile", profile);
             response.put("allergies", profileService.parseJsonArray(profile.getAllergies()));
             response.put("foodAvoidance", profileService.parseJsonArray(profile.getFoodAvoidance()));
+            // ✅ 修改：使用 pastDiseases 替代 chronicDiseases
             response.put("pastDiseases", profileService.parseJsonArray(profile.getPastDiseases()));
         } else {
             response.put("profile", null);

@@ -11,7 +11,9 @@ import org.example.shiyangai.mapper.HealthProfileMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.Period;
 import java.util.Arrays;
 import java.util.List;
 
@@ -23,74 +25,57 @@ public class HealthProfileService {
     private final HealthProfileMapper healthProfileMapper;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    /**
-     * 获取用户健康档案
-     */
     public HealthProfile getProfile(String userId) {
         return healthProfileMapper.selectByUserId(userId);
     }
 
-    /**
-     * 创建或更新健康档案
-     */
     @Transactional
     public void saveProfile(HealthProfile profile) {
-        HealthProfile existing = getProfile(profile.getUserId());
-
-        if (existing != null) {
-            profile.setUpdateTime(LocalDateTime.now());
-            healthProfileMapper.updateById(profile);
-            log.info("更新健康档案: userId={}", profile.getUserId());
-        } else {
-            profile.setUpdateTime(LocalDateTime.now());
-            healthProfileMapper.insert(profile);
-            log.info("创建健康档案: userId={}", profile.getUserId());
+        // 计算年龄
+        if (profile.getBirthDate() != null) {
+            profile.setAge(Period.between(profile.getBirthDate(), LocalDate.now()).getYears());
         }
-    }
 
-    /**
-     * 更新单个字段
-     */
-    @Transactional
-    public void updateField(String userId, String field, Object value) {
-        String strValue = value != null ? value.toString() : "";
-        healthProfileMapper.updateField(userId, field, strValue);
-
-        // 如果是体重/身高，重新计算BMI
-        if ("weight".equals(field) || "height".equals(field)) {
-            updateBMI(userId);
-        }
-    }
-
-    /**
-     * 更新BMI
-     */
-    private void updateBMI(String userId) {
-        HealthProfile profile = getProfile(userId);
-        if (profile != null && profile.getHeight() != null && profile.getWeight() != null) {
+        // 计算BMI
+        if (profile.getHeight() != null && profile.getWeight() != null) {
             double heightM = profile.getHeight() / 100;
-            double bmi = profile.getWeight() / (heightM * heightM);
-            profile.setBmi(Math.round(bmi * 10) / 10.0);
-            healthProfileMapper.updateById(profile);
+            profile.setBmi(Math.round(profile.getWeight() / (heightM * heightM) * 10) / 10.0);
         }
+
+        // 判断档案完整性
+        profile.setIsComplete(isProfileComplete(profile));
+        profile.setUpdateTime(LocalDateTime.now());
+
+        HealthProfile existing = getProfile(profile.getUserId());
+        if (existing != null) {
+            healthProfileMapper.updateById(profile);
+        } else {
+            healthProfileMapper.insert(profile);
+        }
+        log.info("保存健康档案: userId={}, isComplete={}", profile.getUserId(), profile.getIsComplete());
     }
 
-    /**
-     * 检查食物过敏
-     */
+    private boolean isProfileComplete(HealthProfile profile) {
+        // 基础信息必须完整
+        if (profile.getGender() == null) return false;
+        if (profile.getBirthDate() == null) return false;
+        if (profile.getHeight() == null || profile.getWeight() == null) return false;
+        return true;
+    }
+
+    public void updateField(String userId, String field, Object value) {
+        healthProfileMapper.updateField(userId, field, value != null ? value.toString() : null);
+    }
+
     public String checkAllergy(String userId, String foodName) {
         HealthProfile profile = getProfile(userId);
-        if (profile == null || profile.getAllergies() == null) {
-            return null;
-        }
+        if (profile == null || profile.getAllergies() == null) return null;
 
         try {
             List<String> allergies = objectMapper.readValue(profile.getAllergies(),
                     new TypeReference<List<String>>() {});
             for (String allergy : allergies) {
-                if (foodName.contains(allergy) || allergy.contains(foodName)) {
-                    return allergy;
-                }
+                if (foodName.contains(allergy) || allergy.contains(foodName)) return allergy;
             }
         } catch (JsonProcessingException e) {
             log.error("解析过敏数据失败", e);
@@ -98,33 +83,8 @@ public class HealthProfileService {
         return null;
     }
 
-    /**
-     * 检查药食冲突
-     */
-    public String checkDrugFoodConflict(String medicine, String food) {
-        // 药食冲突数据库
-        if (medicine.contains("阿司匹林") && (food.contains("酒") || food.contains("银杏"))) {
-            return "阿司匹林与" + food + "同服可能增加出血风险";
-        }
-        if (medicine.contains("华法林") && (food.contains("菠菜") || food.contains("西兰花"))) {
-            return "华法林与富含维生素K的" + food + "同服可能影响药效";
-        }
-        if (medicine.contains("降压药") && food.contains("西柚")) {
-            return "降压药与西柚同服可能导致血压过低";
-        }
-        if (medicine.contains("降糖药") && food.contains("酒")) {
-            return "降糖药与酒精同服可能导致低血糖";
-        }
-        return null;
-    }
-
-    /**
-     * 解析JSON数组字段
-     */
     public List<String> parseJsonArray(String jsonStr) {
-        if (jsonStr == null || jsonStr.isEmpty()) {
-            return Arrays.asList();
-        }
+        if (jsonStr == null || jsonStr.isEmpty()) return Arrays.asList();
         try {
             return objectMapper.readValue(jsonStr, new TypeReference<List<String>>() {});
         } catch (JsonProcessingException e) {
