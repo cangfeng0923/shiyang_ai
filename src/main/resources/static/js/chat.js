@@ -1,4 +1,4 @@
-// chat.js - 修复光标残留问题
+// chat.js - 简化版
 
 // 全局变量
 let currentStreamController = null;
@@ -9,172 +9,127 @@ async function sendMessage() {
     const message = input.value.trim();
     if (!message || !currentUser) return;
 
+    // 添加用户消息
     addUserMessage(message);
     input.value = '';
 
     // 取消之前的流式输出
     if (currentStreamController) {
-        clearTimeout(currentStreamController.timeout);
         if (currentStreamController.eventSource) {
             currentStreamController.eventSource.close();
         }
         currentStreamController = null;
     }
 
-    // 添加一个空的AI消息占位符，并显示"思考中..."
+    // 添加AI消息占位符
     const aiMessageDiv = addAIMessagePlaceholder();
-    updateAIMessage(aiMessageDiv, '思考中...');
-
-    let fullReply = '';
-    let eventSource = null;
-    let charQueue = [];
-    let isTyping = false;
-    let currentDisplayText = '';
-
-    // 逐字显示函数
-    const typeNextChar = () => {
-        if (!currentStreamController) return;
-
-        if (charQueue.length > 0) {
-            const nextChar = charQueue.shift();
-            currentDisplayText += nextChar;
-            updateAIMessage(aiMessageDiv, currentDisplayText);
-            scrollToBottom();
-
-            const delay = Math.random() * 50 + 30;
-            currentStreamController.timeout = setTimeout(typeNextChar, delay);
-            isTyping = true;
-        } else {
-            isTyping = false;
-            if (currentStreamController) {
-                currentStreamController.timeout = setTimeout(() => {
-                    if (!isTyping && charQueue.length === 0 && currentStreamController) {
-                        if (currentStreamController.completed) {
-                            finalizeAIMessage(aiMessageDiv);
-                            if (currentStreamController) {
-                                currentStreamController = null;
-                            }
-                        }
-                    }
-                }, 500);
-            }
-        }
-    };
-
-    // 添加新数据到队列
-    const addToQueue = (newContent) => {
-        if (!newContent) return;
-
-        // 处理 HTML 实体，避免破坏标签
-        const chars = newContent.split('');
-        for (const char of chars) {
-            charQueue.push(char);
-        }
-
-        if (!isTyping && currentStreamController) {
-            if (currentStreamController.timeout) {
-                clearTimeout(currentStreamController.timeout);
-            }
-            typeNextChar();
-        }
-    };
-
-    currentStreamController = {
-        completed: false,
-        timeout: null,
-        eventSource: null
-    };
+    let fullContent = '';
+    let isFirstChunk = true;
 
     try {
         const url = `${API_BASE}/api/chat/stream?userId=${currentUser.userId}&message=${encodeURIComponent(message)}`;
-        console.log('流式请求URL:', url);
+        const eventSource = new EventSource(url);
 
-        eventSource = new EventSource(url);
-        currentStreamController.eventSource = eventSource;
+        currentStreamController = { eventSource: eventSource };
 
-        eventSource.onopen = function() {
-            console.log('SSE连接已打开');
-        };
-
-        eventSource.addEventListener('message', function(event) {
-            console.log('收到数据块:', event.data);
-
-            if (event.data === '[DONE]') {
-                return;
-            }
-
-            if (event.data && event.data !== '') {
-                fullReply += event.data;
-                addToQueue(event.data);
-            }
-        });
-
-        eventSource.addEventListener('complete', function(event) {
-            console.log('流式对话完成');
-
-            if (currentStreamController) {
-                currentStreamController.completed = true;
-
-                // 等待队列清空后移除光标
-                const waitForQueue = () => {
-                    if (charQueue.length === 0 && !isTyping) {
-                        finalizeAIMessage(aiMessageDiv);
-                        if (eventSource) eventSource.close();
-                        currentStreamController = null;
-                    } else {
-                        setTimeout(waitForQueue, 100);
+        // 监听 message 事件
+        eventSource.addEventListener('message', (event) => {
+            try {
+                const data = event.data;
+                if (data === '[DONE]') {
+                    return;
+                }
+                if (data && data !== '') {
+                    fullContent += data;
+                    // 更新消息内容
+                    const contentDiv = aiMessageDiv.querySelector('.message-content');
+                    if (contentDiv) {
+                        // 移除光标
+                        let cleanContent = fullContent.replace(/\n/g, '<br>');
+                        // 处理 markdown 加粗
+                        cleanContent = cleanContent.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                        contentDiv.innerHTML = cleanContent + '<span class="typing-cursor"></span>';
+                        scrollToBottom();
                     }
-                };
-                waitForQueue();
-            } else {
-                if (eventSource) eventSource.close();
+                }
+            } catch (err) {
+                console.error('处理消息失败:', err);
             }
         });
 
-        eventSource.addEventListener('error', function(event) {
-            console.error('SSE错误:', event);
-            if (eventSource && eventSource.readyState !== EventSource.CLOSED) {
-                eventSource.close();
+        // 监听 complete 事件
+        eventSource.addEventListener('complete', () => {
+            // 移除光标
+            const contentDiv = aiMessageDiv.querySelector('.message-content');
+            if (contentDiv) {
+                let finalContent = fullContent.replace(/\n/g, '<br>');
+                finalContent = finalContent.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                contentDiv.innerHTML = finalContent;
             }
-            if (!fullReply) {
-                updateAIMessage(aiMessageDiv, '抱歉，服务出现异常，请稍后再试。');
-            }
-            finalizeAIMessage(aiMessageDiv);
+            eventSource.close();
             currentStreamController = null;
+            scrollToBottom();
         });
 
+        // 监听 error 事件
+        eventSource.addEventListener('error', (err) => {
+            console.error('SSE错误:', err);
+            if (!fullContent) {
+                const contentDiv = aiMessageDiv.querySelector('.message-content');
+                if (contentDiv) {
+                    contentDiv.innerHTML = '抱歉，服务出现异常，请稍后再试。';
+                }
+            } else {
+                // 已经有内容，只移除光标
+                const contentDiv = aiMessageDiv.querySelector('.message-content');
+                if (contentDiv) {
+                    let finalContent = fullContent.replace(/\n/g, '<br>');
+                    finalContent = finalContent.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                    contentDiv.innerHTML = finalContent;
+                }
+            }
+            eventSource.close();
+            currentStreamController = null;
+            scrollToBottom();
+        });
+
+        // 设置超时（60秒）
         setTimeout(() => {
             if (eventSource && eventSource.readyState !== EventSource.CLOSED) {
+                console.log('流式请求超时');
                 eventSource.close();
-                if (!fullReply) {
-                    updateAIMessage(aiMessageDiv, '请求超时，请稍后再试。');
+                if (!fullContent) {
+                    const contentDiv = aiMessageDiv.querySelector('.message-content');
+                    if (contentDiv) {
+                        contentDiv.innerHTML = '请求超时，请稍后再试。';
+                    }
                 }
-                finalizeAIMessage(aiMessageDiv);
                 currentStreamController = null;
+                scrollToBottom();
             }
         }, 60000);
 
     } catch (error) {
         console.error('发送消息错误:', error);
-        if (eventSource) eventSource.close();
-        updateAIMessage(aiMessageDiv, '网络错误，请稍后再试。');
-        finalizeAIMessage(aiMessageDiv);
+        const contentDiv = aiMessageDiv.querySelector('.message-content');
+        if (contentDiv) {
+            contentDiv.innerHTML = '网络错误，请稍后再试。';
+        }
         currentStreamController = null;
+        scrollToBottom();
     }
 }
 
-// 添加AI消息占位符
 function addAIMessagePlaceholder() {
     const container = document.getElementById('messagesContainer');
     const div = document.createElement('div');
     div.className = 'message ai';
-    div.innerHTML = `<div class="message-avatar">🌿</div><div class="message-content"></div>`;
+    div.innerHTML = `<div class="message-avatar">🌿</div><div class="message-content"><span class="thinking">思考中...</span></div>`;
     container.appendChild(div);
     scrollToBottom();
     return div;
 }
 
-// 更新AI消息内容
 function updateAIMessage(messageDiv, content) {
     const contentDiv = messageDiv.querySelector('.message-content');
     if (contentDiv) {
@@ -182,28 +137,21 @@ function updateAIMessage(messageDiv, content) {
             contentDiv.innerHTML = '<span class="thinking">思考中<span class="dots">...</span></span>';
             return;
         }
-
-        // 显示内容并添加光标
         const formattedContent = escapeHtml(content).replace(/\n/g, '<br>');
-        // 移除所有可能残留的光标
         let cleanContent = formattedContent.replace(/<span class="typing-cursor">[^<]*<\/span>/g, '');
         contentDiv.innerHTML = cleanContent + '<span class="typing-cursor"></span>';
         scrollToBottom();
     }
 }
 
-// 完成消息后移除光标（彻底移除）
 function finalizeAIMessage(messageDiv) {
     const contentDiv = messageDiv.querySelector('.message-content');
     if (contentDiv) {
-        // 移除所有光标元素
         contentDiv.innerHTML = contentDiv.innerHTML.replace(/<span class="typing-cursor"><\/span>/g, '');
-        // 也移除可能带有内容的版本
         contentDiv.innerHTML = contentDiv.innerHTML.replace(/<span class="typing-cursor">[^<]*<\/span>/g, '');
     }
 }
 
-// 添加用户消息
 function addUserMessage(content) {
     const container = document.getElementById('messagesContainer');
     const div = document.createElement('div');
@@ -213,39 +161,54 @@ function addUserMessage(content) {
     scrollToBottom();
 }
 
-// 添加普通AI消息（用于历史加载）
 function addAIMessage(content) {
     const container = document.getElementById('messagesContainer');
+    if (!container) return;
     const div = document.createElement('div');
     div.className = 'message ai';
     div.innerHTML = `<div class="message-avatar">🌿</div><div class="message-content">${escapeHtml(content).replace(/\n/g, '<br>')}</div>`;
     container.appendChild(div);
-    scrollToBottom();
 }
 
 // 加载历史消息
 async function loadChatHistory() {
     if (!currentUser) return;
+
+    const container = document.getElementById('messagesContainer');
+    if (!container) return;
+
+    container.innerHTML = '';
+
     try {
         const response = await fetch(`${API_BASE}/api/chat/history/${currentUser.userId}?limit=50`);
         const history = await response.json();
-        const container = document.getElementById('messagesContainer');
-        container.innerHTML = '';
+
         if (history && history.length > 0) {
             history.forEach(chat => {
-                if (chat.role === 'user') addUserMessage(chat.content);
-                else if (chat.role === 'assistant' || chat.role === 'ai') addAIMessage(chat.content);
+                if (chat.role === 'user') {
+                    addUserMessage(chat.content);
+                } else if (chat.role === 'assistant' || chat.role === 'ai') {
+                    addAIMessage(chat.content);
+                }
             });
         } else {
-            addAIMessage(`您好${currentUser.username}！我是您的专属中医顾问。${currentUser.constitution ? '您是' + currentUser.constitution + '体质' : '请完成体质测评'}，有什么健康问题可以问我。`);
+            const welcomeMsg = `您好${currentUser.username}！我是您的专属中医顾问。${currentUser.constitution ? '您是' + currentUser.constitution + '体质' : '请完成体质测评'}，有什么健康问题可以问我。`;
+            addAIMessage(welcomeMsg);
         }
+
+        // 滚动到底部
+        setTimeout(() => {
+            scrollToBottom();
+        }, 100);
+
     } catch (error) {
         console.error('加载历史失败:', error);
-        addAIMessage(`您好${currentUser.username}！有什么健康问题可以问我。`);
+        const welcomeMsg = `您好${currentUser.username}！有什么健康问题可以问我。`;
+        addAIMessage(welcomeMsg);
+        scrollToBottom();
     }
 }
 
-// 辅助函数
 function escapeHtml(text) {
     if (!text) return '';
     const div = document.createElement('div');
@@ -254,8 +217,14 @@ function escapeHtml(text) {
 }
 
 function scrollToBottom() {
-    const container = document.getElementById('messagesContainer');
-    if (container) {
-        container.scrollTop = container.scrollHeight;
+    // 滚动 chat-panel（父容器），不是 messagesContainer
+    const panel = document.getElementById('chat-panel');
+    if (panel) {
+        panel.scrollTop = panel.scrollHeight;
     }
 }
+
+// 确保函数挂载到 window
+window.sendMessage = sendMessage;
+window.loadChatHistory = loadChatHistory;
+window.scrollToBottom = scrollToBottom;

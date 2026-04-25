@@ -1,4 +1,4 @@
-// 检查登录状态
+// auth.js
 function checkAuth() {
     const savedUser = localStorage.getItem('currentUser');
     if (!savedUser) {
@@ -13,14 +13,13 @@ function checkAuth() {
     }
 }
 
-// 退出登录
 function logout() {
     localStorage.removeItem('currentUser');
     window.location.href = 'index.html';
 }
 
-// 显示退出弹窗
 function showLogoutPopup(event) {
+    event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
     const existingPopup = document.querySelector('.popup-menu');
     if (existingPopup) existingPopup.remove();
@@ -29,7 +28,7 @@ function showLogoutPopup(event) {
     popup.className = 'popup-menu';
     popup.style.left = rect.left + 'px';
     popup.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
-    popup.innerHTML = `<div class="popup-menu-item logout" onclick="logout()"><span>🚪</span> 退出登录</div>`;
+    popup.innerHTML = `<div class="popup-menu-item logout" onclick="window.logout()"><span>🚪</span> 退出登录</div>`;
     document.body.appendChild(popup);
 
     const closePopup = (e) => {
@@ -39,7 +38,6 @@ function showLogoutPopup(event) {
     setTimeout(() => document.addEventListener('click', closePopup), 0);
 }
 
-// 切换侧边栏
 function toggleSidebar() {
     const sidebar = document.getElementById('sidebar');
     if (window.innerWidth <= 768) {
@@ -48,3 +46,8 @@ function toggleSidebar() {
         sidebar.classList.toggle('collapsed');
     }
 }
+
+// 挂载到 window
+window.logout = logout;
+window.showLogoutPopup = showLogoutPopup;
+window.toggleSidebar = toggleSidebar;

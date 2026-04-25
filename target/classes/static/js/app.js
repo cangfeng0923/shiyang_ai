@@ -1,58 +1,9 @@
-// app.js - 确保所有函数正确挂载到 window
-
-// 检查登录状态
-function checkAuth() {
-    const savedUser = localStorage.getItem('currentUser');
-    if (!savedUser) {
-        window.location.href = 'index.html';
-        return null;
-    }
-    try {
-        return JSON.parse(savedUser);
-    } catch(e) {
-        window.location.href = 'index.html';
-        return null;
-    }
-}
-
-// 退出登录
-function logout() {
-    localStorage.removeItem('currentUser');
-    window.location.href = 'index.html';
-}
-
-// 显示退出弹窗
-function showLogoutPopup(event) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const existingPopup = document.querySelector('.popup-menu');
-    if (existingPopup) existingPopup.remove();
-
-    const popup = document.createElement('div');
-    popup.className = 'popup-menu';
-    popup.style.left = rect.left + 'px';
-    popup.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
-    popup.innerHTML = `<div class="popup-menu-item logout" onclick="logout()"><span>🚪</span> 退出登录</div>`;
-    document.body.appendChild(popup);
-
-    const closePopup = (e) => {
-        if (!popup.contains(e.target)) popup.remove();
-        document.removeEventListener('click', closePopup);
-    };
-    setTimeout(() => document.addEventListener('click', closePopup), 0);
-}
-
-// 切换侧边栏
-function toggleSidebar() {
-    const sidebar = document.getElementById('sidebar');
-    if (window.innerWidth <= 768) {
-        sidebar.classList.toggle('open');
-    } else {
-        sidebar.classList.toggle('collapsed');
-    }
-}
+// app.js - 简化修复版
 
 // 切换面板
 function switchPanel(panelName) {
+    console.log('切换到面板:', panelName);
+
     // 移除所有激活状态
     document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
     document.querySelectorAll('.feature-panel').forEach(panel => panel.classList.remove('active'));
@@ -75,21 +26,25 @@ function switchPanel(panelName) {
         inputArea.style.display = panelName === 'chat' ? 'flex' : 'none';
     }
 
+    // 聊天面板：滚动到底部
+    if (panelName === 'chat') {
+        setTimeout(() => {
+            if (typeof scrollToBottom === 'function') {
+                scrollToBottom();
+            }
+        }, 100);
+    }
+
     // 加载面板数据
     switch (panelName) {
         case 'profile':
             if (typeof renderProfilePanel === 'function') renderProfilePanel();
-            if (typeof loadHealthProfile === 'function') loadHealthProfile();
             break;
         case 'diet':
             if (typeof renderDietPanel === 'function') renderDietPanel();
-            if (typeof loadTodayRecords === 'function') loadTodayRecords();
-            if (typeof loadWeekReport === 'function') loadWeekReport();
             break;
         case 'sleep':
             if (typeof renderSleepPanel === 'function') renderSleepPanel();
-            if (typeof loadTodaySleepRecords === 'function') loadTodaySleepRecords();
-            if (typeof loadSleepReport === 'function') loadSleepReport();
             break;
         case 'assessment':
             if (typeof renderAssessmentPanel === 'function') renderAssessmentPanel();
@@ -100,28 +55,35 @@ function switchPanel(panelName) {
             break;
         case 'report':
             if (typeof renderReportPanel === 'function') renderReportPanel();
-            if (typeof loadFusionReport === 'function') loadFusionReport();  // 改为 loadFusionReport
+            if (typeof loadSevenDayReport === 'function') loadSevenDayReport();
             break;
         default:
-            if (panelName === 'chat' && typeof loadChatHistory === 'function') {
-                loadChatHistory();
-            }
+            break;
     }
 }
 
-// 挂载全局函数
-window.switchPanel = switchPanel;
-window.toggleSidebar = toggleSidebar;
-window.showLogoutPopup = showLogoutPopup;
-window.logout = logout;
+// 绑定导航菜单点击事件
+function bindNavEvents() {
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.removeEventListener('click', handleNavClick);
+        item.addEventListener('click', handleNavClick);
+    });
+}
 
-// 其他函数会在各模块加载时挂载
+function handleNavClick(e) {
+    const panel = this.getAttribute('data-panel');
+    if (panel && typeof switchPanel === 'function') {
+        switchPanel(panel);
+    }
+}
 
 // 初始化
-function init() {
+async function init() {
+    console.log('初始化开始...');
     currentUser = checkAuth();
     if (!currentUser) return;
 
+    // 显示用户信息
     const usernameDisplay = document.getElementById('usernameDisplay');
     const constitutionDisplay = document.getElementById('constitutionDisplay');
     const avatarEmoji = document.getElementById('avatarEmoji');
@@ -129,12 +91,32 @@ function init() {
 
     if (usernameDisplay) usernameDisplay.innerText = currentUser.username;
     if (constitutionDisplay) constitutionDisplay.innerText = currentUser.constitution || '未测评';
-    if (avatarEmoji) avatarEmoji.innerText = getAvatarByConstitution ? getAvatarByConstitution(currentUser.constitution) : '👤';
-    if (userInfoBtn) userInfoBtn.addEventListener('click', showLogoutPopup);
+    if (avatarEmoji) avatarEmoji.innerText = getAvatarByConstitution(currentUser.constitution);
+    if (userInfoBtn) {
+        userInfoBtn.removeEventListener('click', showLogoutPopup);
+        userInfoBtn.addEventListener('click', showLogoutPopup);
+    }
 
-    if (typeof loadChatHistory === 'function') loadChatHistory();
+    // 绑定导航事件
+    bindNavEvents();
+
+    // 先切换到聊天面板
     switchPanel('chat');
+
+    // 再加载历史记录
+    if (typeof loadChatHistory === 'function') {
+        await loadChatHistory();
+    }
+
+    console.log('初始化完成');
 }
 
+// 挂载全局函数
+window.switchPanel = switchPanel;
+
 // 启动
-init();
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    init();
+}

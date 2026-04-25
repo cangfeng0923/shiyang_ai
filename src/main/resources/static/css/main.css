@@ -155,6 +155,7 @@ body {
     background: #f0f2f5;
     overflow: hidden;
 }
+
 .chat-header {
     background: white;
     padding: 16px 24px;
@@ -164,27 +165,35 @@ body {
 .chat-header h2 { color: #2c3e50; font-size: 1.25rem; margin-bottom: 4px; }
 .chat-header p { color: #7f8c8d; font-size: 0.8rem; }
 
+/* 修复 feature-area - 不要自己滚动 */
 .feature-area {
     flex: 1;
-    overflow-y: auto;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    position: relative;
+    overflow: hidden;  /* 改为 hidden，让子面板自己滚动 */
 }
-.feature-area::-webkit-scrollbar { display: none; }
 
-.feature-panel { display: none; padding: 20px 24px; }
-.feature-panel.active { display: block; }
+.feature-panel {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow-y: auto;  /* 面板自己滚动 */
+}
 
+.feature-panel.active {
+    display: block;
+}
+
+/* 消息容器 - 使用 flex 列布局 */
 .messages-container {
-    height: 100%;
     display: flex;
     flex-direction: column;
     gap: 12px;
-    overflow-y: auto;
-    scrollbar-width: none;
     padding: 20px;
+    /* 不需要设置高度，让内容撑开 */
 }
-.messages-container::-webkit-scrollbar { display: none; }
 
 .input-area {
     background: white;
