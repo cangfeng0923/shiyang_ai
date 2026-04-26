@@ -66,3 +66,7 @@ food:
   crawler:
     timeout: 5000
     retry: 3
+
+weather:
+  api:
+    key: Suj_5L4FC4UGywTmT

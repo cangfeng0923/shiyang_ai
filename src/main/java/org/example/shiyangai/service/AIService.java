@@ -757,4 +757,101 @@ public class AIService {
         return effect.isEmpty() ? "适量食用" : effect;
     }
 
+
+    /**
+     * 生成节气养生建议（AI动态生成）
+     */
+    public String generateSolarTermAdvice(String termName, String termClimate, String constitution,
+                                          WeatherService.WeatherInfo weather) {
+        log.info("AI生成节气建议: term={}, constitution={}, city={}", termName, constitution, weather.getCity());
+
+        try {
+            String systemPrompt = buildSolarTermSystemPrompt();
+            String userPrompt = buildSolarTermUserPrompt(termName, termClimate, constitution, weather);
+
+            List<Map<String, String>> messages = new ArrayList<>();
+
+            Map<String, String> systemMsg = new HashMap<>();
+            systemMsg.put("role", "system");
+            systemMsg.put("content", systemPrompt);
+            messages.add(systemMsg);
+
+            Map<String, String> userMsg = new HashMap<>();
+            userMsg.put("role", "user");
+            userMsg.put("content", userPrompt);
+            messages.add(userMsg);
+
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("model", "deepseek-chat");
+            requestBody.put("messages", messages);
+            requestBody.put("temperature", 0.7);
+            requestBody.put("max_tokens", 800);
+            requestBody.put("stream", false);
+
+            String jsonBody = objectMapper.writeValueAsString(requestBody);
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("https://api.deepseek.com/v1/chat/completions"))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .timeout(Duration.ofSeconds(30))
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() == 200) {
+                var jsonNode = objectMapper.readTree(response.body());
+                return jsonNode.path("choices").path(0).path("message").path("content").asText();
+            } else {
+                log.error("AI调用失败: {}", response.statusCode());
+                return getDefaultSolarTermAdvice(termName, constitution);
+            }
+
+        } catch (Exception e) {
+            log.error("AI生成节气建议失败", e);
+            return getDefaultSolarTermAdvice(termName, constitution);
+        }
+    }
+
+    private String buildSolarTermSystemPrompt() {
+        return """
+        你是一位资深的中医养生专家，有30年临床经验。
+        你的回答要亲切自然，像长辈关心晚辈一样。
+        回答要简洁实用，不要啰嗦。
+        直接输出内容，不要用markdown格式。
+        不要使用"首先、其次、最后"这类词。
+        """;
+    }
+
+    private String buildSolarTermUserPrompt(String termName, String termClimate, String constitution,
+                                            WeatherService.WeatherInfo weather) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("请为用户生成一份个性化的节气养生建议。\n\n");
+        sb.append("【当前节气】").append(termName).append("\n");
+        sb.append("【节气特点】").append(termClimate).append("\n");
+        sb.append("【用户体质】").append(constitution != null ? constitution : "平和质").append("\n");
+        sb.append("【今日天气】").append(weather.getCity()).append("，");
+        sb.append(weather.getTodayWeather()).append("，");
+        sb.append(weather.getTodayTemp()).append("\n\n");
+
+        sb.append("请按以下格式输出（每段用空行分隔）：\n");
+        sb.append("🌿 养生原则：[简洁描述当前节气的养生核心]\n\n");
+        sb.append("🍽️ 饮食建议：[推荐3-5种食物和简单理由]\n\n");
+        sb.append("💤 起居运动：[生活作息和运动建议]\n\n");
+        sb.append("💡 专属提醒：[针对用户体质的个性化提醒]\n\n");
+        sb.append("📖 经典引用：[一句《黄帝内经》或中医经典原文]");
+
+        return sb.toString();
+    }
+
+    private String getDefaultSolarTermAdvice(String termName, String constitution) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("🌿 养生原则：顺应时节，调和阴阳\n\n");
+        sb.append("🍽️ 饮食建议：选择当季新鲜食材，饮食均衡\n\n");
+        sb.append("💤 起居运动：规律作息，适度运动\n\n");
+        sb.append("💡 专属提醒：").append(constitution).append("体质注意饮食调理\n\n");
+        sb.append("📖 经典引用：《黄帝内经》：法于阴阳，和于术数，食饮有节，起居有常。");
+        return sb.toString();
+    }
 }
