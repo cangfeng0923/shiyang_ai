@@ -1,27 +1,11 @@
-// diet.js - 添加删除和修改功能的完整版
-// ========== 确保全局变量存在 ==========
-if (typeof API_BASE === 'undefined') {
-    var API_BASE = '';  // 使用相对路径
-}
-
-if (typeof currentUser === 'undefined') {
-    var currentUser = null;
-}
+// diet.js - 完整版（包含所有改进功能）
 
 let currentMeal = 'BREAKFAST';
 let foodItems = [];
-let editingRecordId = null;  // 正在编辑的记录ID
-
-// 确保 getMealName 函数存在
-function getMealName(mealType) {
-    const map = {
-        'BREAKFAST': '🌅 早餐',
-        'LUNCH': '☀️ 午餐',
-        'DINNER': '🌙 晚餐',
-        'SNACK': '🍪 加餐'
-    };
-    return map[mealType] || mealType;
-}
+let editingRecordId = null;
+let editingMealKey = null;
+let editingMealDate = null;
+let deletedRecordIds = [];
 
 // 单位换算映射
 const unitConversion = {
@@ -32,147 +16,40 @@ const unitConversion = {
     '碗': { toGrams: 250, hint: '1碗 ≈ 250ml/250g' },
     '勺': { toGrams: 15, hint: '1勺 ≈ 15g' },
     '个': { toGrams: 50, hint: '1个约50g（仅供参考）' },
-    '片': { toGrams: 10, hint: '1片约10g（仅供参考）' }
+    '片': { toGrams: 10, hint: '1片约10g（仅供参考）' },
+    '块': { toGrams: 30, hint: '1块约30g' },
+    '盘': { toGrams: 200, hint: '1盘约200g' }
 };
 
-function renderDietPanel() {
-    const panel = document.getElementById('diet-panel');
-    if (!panel) return;
+// 常用食物缓存
+let cachedCommonFoods = [];
 
-    panel.innerHTML = `
-        <div class="form-card">
-            <h4>🍽️ ${editingRecordId ? '编辑饮食' : '记录今日饮食'}</h4>
-            ${editingRecordId ? '<div style="background:#eef2ff; padding:8px; border-radius:8px; margin-bottom:12px;">✏️ 正在编辑模式</div>' : ''}
-            <div class="meal-buttons">
-                <button class="meal-btn" data-meal="BREAKFAST" onclick="selectMeal('BREAKFAST')">🌅 早餐</button>
-                <button class="meal-btn" data-meal="LUNCH" onclick="selectMeal('LUNCH')">☀️ 午餐</button>
-                <button class="meal-btn" data-meal="DINNER" onclick="selectMeal('DINNER')">🌙 晚餐</button>
-                <button class="meal-btn" data-meal="SNACK" onclick="selectMeal('SNACK')">🍪 加餐</button>
-            </div>
-            
-            <div class="food-list-container" id="foodListContainer">
-                <div id="foodItemsList"></div>
-            </div>
-            
-            <button class="add-food-btn" onclick="addFoodItem()">+ 添加食物</button>
-            
-            <div class="form-row">
-                <textarea id="mealNotes" rows="2" placeholder="餐次备注（可选）" style="width:100%; padding:10px; border-radius:10px; border:1px solid #e0e4e8; resize:none;"></textarea>
-            </div>
-            
-            <div style="display: flex; gap: 10px;">
-                <button class="btn-primary" onclick="submitMealRecords()">📝 ${editingRecordId ? '保存修改' : '记录本餐'}</button>
-                ${editingRecordId ? '<button class="btn-secondary" onclick="cancelEdit()">取消编辑</button>' : ''}
-            </div>
-        </div>
-        
-        <div class="form-card">
-            <h4>📅 今日饮食</h4>
-            <div id="todayRecords" class="record-list"></div>
-        </div>
-        
-        <div class="report-card">
-            <div class="report-header">
-                <h4>📊 近7日饮食报告</h4>
-                <button class="refresh-report-btn" onclick="loadWeekReport()">🔄 刷新报告</button>
-            </div>
-            <div id="weekReportContent" class="week-report-content">
-                <div class="loading-spinner"></div> 加载中...
-            </div>
-        </div>
-    `;
-
-    if (foodItems.length === 0 && !editingRecordId) {
-        addFoodItem();
-    } else if (foodItems.length > 0) {
-        renderFoodItemsList();
-    }
-
-    updateMealButtonActive();
-    loadTodayRecords();
-    loadWeekReport();
+// ========== 工具函数 ==========
+function getMealName(mealType) {
+    const map = {
+        'BREAKFAST': '🌅 早餐',
+        'LUNCH': '☀️ 午餐',
+        'DINNER': '🌙 晚餐',
+        'SNACK': '🍪 加餐'
+    };
+    return map[mealType] || mealType;
 }
 
-function renderFoodItemsList() {
-    const container = document.getElementById('foodItemsList');
-    if (!container) return;
-
-    container.innerHTML = foodItems.map((item, index) => `
-        <div class="food-item" data-index="${index}">
-            <div class="food-item-header">
-                <input type="text" class="food-name-input" placeholder="食物名称" value="${escapeHtml(item.name || '')}" onchange="updateFoodItem(${index}, 'name', this.value)">
-                <button class="remove-food-btn" onclick="removeFoodItem(${index})">✕</button>
-            </div>
-            <div class="food-item-details">
-                <div class="amount-input-group">
-                    <label>数量</label>
-                    <div class="amount-input-wrapper">
-                        <input type="number" class="amount-value" placeholder="数量" value="${item.amount || ''}" step="0.1" onchange="updateFoodItem(${index}, 'amount', parseFloat(this.value) || 0)">
-                        <select class="unit-select" onchange="updateFoodItem(${index}, 'unit', this.value)">
-                            ${renderUnitOptions(item.unit || 'g')}
-                        </select>
-                    </div>
-                    <span class="unit-hint" id="unitHint_${index}">${getUnitHint(item.unit || 'g')}</span>
-                </div>
-            </div>
-        </div>
-    `).join('');
-
-    foodItems.forEach((item, index) => {
-        const hintSpan = document.getElementById(`unitHint_${index}`);
-        if (hintSpan) {
-            hintSpan.textContent = getUnitHint(item.unit || 'g');
-        }
-    });
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
-function renderUnitOptions(selectedUnit) {
-    const units = ['g', 'kg', 'ml', '杯', '碗', '勺', '个', '片'];
-    return units.map(unit =>
-        `<option value="${unit}" ${selectedUnit === unit ? 'selected' : ''}>${unit}</option>`
-    ).join('');
-}
-
-function getUnitHint(unit) {
-    const conversion = unitConversion[unit];
-    if (conversion && conversion.hint) {
-        return `💡 ${conversion.hint}`;
-    }
-    return '';
-}
-
-function addFoodItem() {
-    foodItems.push({
-        name: '',
-        amount: null,
-        unit: 'g',
-        grams: null
-    });
-    renderFoodItemsList();
-}
-
-function removeFoodItem(index) {
-    if (foodItems.length === 1) {
-        foodItems[0] = { name: '', amount: null, unit: 'g', grams: null };
-        renderFoodItemsList();
-    } else {
-        foodItems.splice(index, 1);
-        renderFoodItemsList();
-    }
-}
-
-function updateFoodItem(index, field, value) {
-    foodItems[index][field] = value;
-
-    if (field === 'amount' || field === 'unit') {
-        const item = foodItems[index];
-        const conversion = unitConversion[item.unit] || unitConversion['g'];
-        if (item.amount) {
-            item.grams = item.amount * conversion.toGrams;
-        } else {
-            item.grams = null;
-        }
-    }
+function formatDateTime(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
 }
 
 function calculateGramsFromAmount(amount, unit) {
@@ -181,6 +58,128 @@ function calculateGramsFromAmount(amount, unit) {
     return Math.round(amount * conversion.toGrams);
 }
 
+// ========== 常用食物功能 ==========
+async function loadCommonFoods() {
+    if (!currentUser) return;
+    try {
+        const response = await fetch(`${API_BASE}/api/diet/common-foods/${currentUser.userId}?limit=8`);
+        const data = await response.json();
+        if (data.success && data.foods) {
+            cachedCommonFoods = data.foods;
+        }
+    } catch (error) {
+        console.error('加载常用食物失败:', error);
+        cachedCommonFoods = [];
+    }
+}
+
+function renderCommonFoodsSection() {
+    if (!cachedCommonFoods || cachedCommonFoods.length === 0) return '';
+
+    return `
+        <div class="common-foods-section" style="margin: 12px 0; padding: 8px; background: #f8f9fa; border-radius: 12px;">
+            <div style="font-size: 0.7rem; color: #888; margin-bottom: 6px;">📌 最近常用</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                ${cachedCommonFoods.map(food => `
+                    <button type="button" class="common-food-btn" onclick="quickAddFood('${escapeHtml(food.food_name)}', 'g', 1)">
+                        🍽️ ${escapeHtml(food.food_name)}
+                        <span style="font-size: 0.6rem; color: #888;">(${food.count}次)</span>
+                    </button>
+                `).join('')}
+            </div>
+        </div>
+    `;
+}
+
+function quickAddFood(name, unit, amount) {
+    const conversion = unitConversion[unit] || unitConversion['g'];
+    const grams = amount ? amount * conversion.toGrams : null;
+
+    foodItems.push({
+        name: name,
+        amount: amount,
+        unit: unit,
+        grams: grams,
+        isQuickAdd: true
+    });
+    renderFoodItemsList();
+    document.getElementById('foodItemsList')?.scrollIntoView({ behavior: 'smooth' });
+}
+
+// ========== 食物列表渲染 ==========
+function renderUnitOptions(selectedUnit) {
+    const units = ['g', 'kg', 'ml', '杯', '碗', '勺', '个', '片', '块', '盘'];
+    return units.map(unit =>
+        `<option value="${unit}" ${selectedUnit === unit ? 'selected' : ''}>${unit}</option>`
+    ).join('');
+}
+
+function getUnitHint(unit) {
+    const conversion = unitConversion[unit];
+    return conversion && conversion.hint ? `💡 ${conversion.hint}` : '';
+}
+
+function renderFoodItemsList() {
+    const container = document.getElementById('foodItemsList');
+    if (!container) return;
+
+    if (foodItems.length === 0) {
+        container.innerHTML = '<div style="text-align:center; padding:20px; color:#999;">点击下方按钮添加食物</div>';
+        return;
+    }
+
+    container.innerHTML = foodItems.map((item, index) => `
+        <div class="food-item" data-index="${index}" style="border:1px solid #e0e4e8; border-radius:10px; padding:10px; margin-bottom:10px;">
+            <div class="food-item-header" style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                <input type="text" class="food-name-input" placeholder="食物名称" value="${escapeHtml(item.name || '')}" 
+                       style="flex:1; padding:8px; border:1px solid #ddd; border-radius:8px;" 
+                       onchange="updateFoodItem(${index}, 'name', this.value)">
+                <button class="remove-food-btn" onclick="removeFoodItem(${index})" 
+                        style="background:#fee; border:none; border-radius:8px; padding:0 12px; margin-left:8px; cursor:pointer;">✕</button>
+            </div>
+            <div class="food-item-details">
+                <div class="amount-input-group" style="display:flex; align-items:center; gap:8px;">
+                    <label style="font-size:0.8rem;">数量</label>
+                    <div class="amount-input-wrapper" style="display:flex; gap:8px;">
+                        <input type="number" class="amount-value" placeholder="数量" value="${item.amount || ''}" step="0.1" 
+                               style="width:80px; padding:8px; border:1px solid #ddd; border-radius:8px;" 
+                               onchange="updateFoodItem(${index}, 'amount', parseFloat(this.value) || 0)">
+                        <select class="unit-select" onchange="updateFoodItem(${index}, 'unit', this.value)"
+                                style="padding:8px; border:1px solid #ddd; border-radius:8px;">
+                            ${renderUnitOptions(item.unit || 'g')}
+                        </select>
+                    </div>
+                    <span class="unit-hint" style="font-size:0.7rem; color:#888;">${getUnitHint(item.unit || 'g')}</span>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function addFoodItem() {
+    foodItems.push({ name: '', amount: null, unit: 'g', grams: null });
+    renderFoodItemsList();
+}
+
+function removeFoodItem(index) {
+    if (foodItems.length === 1) {
+        foodItems[0] = { name: '', amount: null, unit: 'g', grams: null };
+    } else {
+        foodItems.splice(index, 1);
+    }
+    renderFoodItemsList();
+}
+
+function updateFoodItem(index, field, value) {
+    foodItems[index][field] = value;
+    if (field === 'amount' || field === 'unit') {
+        const item = foodItems[index];
+        const conversion = unitConversion[item.unit] || unitConversion['g'];
+        item.grams = item.amount ? item.amount * conversion.toGrams : null;
+    }
+}
+
+// ========== 餐次选择 ==========
 function selectMeal(meal) {
     currentMeal = meal;
     updateMealButtonActive();
@@ -195,13 +194,18 @@ function updateMealButtonActive() {
     });
 }
 
+// ========== 编辑相关 ==========
 function cancelEdit() {
     editingRecordId = null;
+    editingMealKey = null;
+    editingMealDate = null;
+    deletedRecordIds = [];
     foodItems = [];
     addFoodItem();
     renderDietPanel();
 }
 
+// ========== 记录提交 ==========
 async function submitMealRecords() {
     if (!currentUser) {
         alert('请先登录');
@@ -209,205 +213,105 @@ async function submitMealRecords() {
     }
 
     const validFoods = foodItems.filter(item => item.name && item.name.trim());
-
     if (validFoods.length === 0) {
         alert('请至少添加一种食物');
         return;
     }
 
     const mealNotes = document.getElementById('mealNotes')?.value || '';
-    const now = new Date();
-    const recordDateTime = formatDateTime(now);
+    const recordDateTime = formatDateTime(new Date());
 
-    // 如果是编辑模式，更新记录
-    if (editingRecordId) {
-        const food = validFoods[0];
-        const grams = calculateGramsFromAmount(food.amount, food.unit);
+    // 编辑模式 - 批量处理
+    if (editingRecordId && editingMealKey) {
+        const recordsToSave = [];
 
-        const record = {
-            id: editingRecordId,
-            userId: currentUser.userId,
-            mealType: currentMeal,
-            foodName: food.name.trim(),
-            grams: grams,
-            notes: mealNotes || null,
-            recordDate: recordDateTime
-        };
+        for (const food of validFoods) {
+            const grams = calculateGramsFromAmount(food.amount, food.unit);
+            const recordData = {
+                id: food.id || null,
+                userId: currentUser.userId,
+                mealType: currentMeal,
+                foodName: food.name.trim(),
+                grams: grams,
+                originalAmount: food.amount,
+                originalUnit: food.unit,
+                notes: mealNotes || null,
+                recordDate: editingMealDate || recordDateTime
+            };
+            recordsToSave.push(recordData);
+        }
 
         try {
-            const response = await fetch(`${API_BASE}/api/diet/record/${editingRecordId}`, {
+            const response = await fetch(`${API_BASE}/api/diet/meal-records`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(record)
+                body: JSON.stringify({
+                    userId: currentUser.userId,
+                    mealType: currentMeal,
+                    recordDate: editingMealDate || recordDateTime,
+                    records: recordsToSave,
+                    deletedIds: deletedRecordIds
+                })
             });
             const data = await response.json();
-
             if (data.success) {
-                alert(`更新成功！健康评分：${data.healthScore}/100`);
-                editingRecordId = null;
-                foodItems = [];
-                addFoodItem();
-                document.getElementById('mealNotes').value = '';
+                alert(`更新成功！共保存 ${recordsToSave.length} 种食物`);
+                cancelEdit();
                 await loadTodayRecords();
                 await loadWeekReport();
             } else {
                 alert('更新失败');
             }
         } catch (error) {
-            console.error('更新失败:', error);
-            alert('网络错误: ' + error.message);
+            alert('网络错误');
         }
         return;
     }
 
     // 新增模式
     let successCount = 0;
-    let failedFoods = [];
-
     for (const food of validFoods) {
         const grams = calculateGramsFromAmount(food.amount, food.unit);
-
-        const record = {
-            userId: currentUser.userId,
-            mealType: currentMeal,
-            foodName: food.name.trim(),
-            grams: grams,
-            notes: mealNotes || null,
-            recordDate: recordDateTime
-        };
-
         try {
             const response = await fetch(`${API_BASE}/api/diet/record`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(record)
+                body: JSON.stringify({
+                    userId: currentUser.userId,
+                    mealType: currentMeal,
+                    foodName: food.name.trim(),
+                    grams: grams,
+                    originalAmount: food.amount,
+                    originalUnit: food.unit,
+                    notes: mealNotes || null,
+                    recordDate: recordDateTime
+                })
             });
             const data = await response.json();
-
-            if (data.success) {
-                successCount++;
-            } else {
-                failedFoods.push(food.name);
-            }
+            if (data.success) successCount++;
         } catch (error) {
             console.error('记录失败:', error);
-            failedFoods.push(food.name);
         }
     }
 
     if (successCount > 0) {
-        alert(`记录成功！共记录 ${successCount} 种食物${failedFoods.length > 0 ? `，失败: ${failedFoods.join(', ')}` : ''}`);
-
+        alert(`记录成功！共记录 ${successCount} 种食物`);
         foodItems = [];
+        deletedRecordIds = [];
         addFoodItem();
-        document.getElementById('mealNotes').value = '';
-
+        const notesInput = document.getElementById('mealNotes');
+        if (notesInput) notesInput.value = '';
         await loadTodayRecords();
         await loadWeekReport();
-        showUnitConversionTip();
+        await loadCommonFoods();  // 刷新常用食物
     } else {
         alert('记录失败，请重试');
     }
 }
 
-async function editDietRecord(recordId) {
-    if (!currentUser) return;
-
-    try {
-        const response = await fetch(`${API_BASE}/api/diet/record/${recordId}`);
-        if (!response.ok) {
-            // 如果后端没有提供单独的获取接口，我们从今日记录中获取
-            const todayResponse = await fetch(`${API_BASE}/api/diet/today/${currentUser.userId}`);
-            const todayData = await todayResponse.json();
-            const record = todayData.records.find(r => r.id === recordId);
-            if (record) {
-                populateEditForm(record);
-            }
-        } else {
-            const data = await response.json();
-            populateEditForm(data.record);
-        }
-    } catch (error) {
-        console.error('获取记录失败:', error);
-        // 从今日记录中获取
-        const todayResponse = await fetch(`${API_BASE}/api/diet/today/${currentUser.userId}`);
-        const todayData = await todayResponse.json();
-        const record = todayData.records.find(r => r.id === recordId);
-        if (record) {
-            populateEditForm(record);
-        } else {
-            alert('获取记录失败');
-        }
-    }
-}
-
-function populateEditForm(record) {
-    editingRecordId = record.id;
-    currentMeal = record.mealType;
-
-    foodItems = [{
-        name: record.foodName,
-        amount: record.grams || null,
-        unit: 'g',
-        grams: record.grams
-    }];
-
-    document.getElementById('mealNotes').value = record.notes || '';
-
-    renderDietPanel();
-}
-
-async function deleteDietRecord(recordId) {
-    if (!currentUser) return;
-
-    if (!confirm('确定要删除这条饮食记录吗？')) return;
-
-    try {
-        const response = await fetch(`${API_BASE}/api/diet/record/${recordId}?userId=${currentUser.userId}`, {
-            method: 'DELETE'
-        });
-        const data = await response.json();
-
-        if (data.success) {
-            alert('删除成功');
-            await loadTodayRecords();
-            await loadWeekReport();
-        } else {
-            alert('删除失败: ' + (data.message || '未知错误'));
-        }
-    } catch (error) {
-        console.error('删除失败:', error);
-        alert('网络错误: ' + error.message);
-    }
-}
-
-function formatDateTime(date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    const seconds = String(date.getSeconds()).padStart(2, '0');
-    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
-}
-
-function showUnitConversionTip() {
-    const existingTip = document.querySelector('.unit-conversion-tip');
-    if (existingTip) existingTip.remove();
-
-    const tip = document.createElement('div');
-    tip.className = 'unit-conversion-tip';
-    tip.innerHTML = '💡 小提示：1杯 ≈ 200ml/200g，1碗 ≈ 250ml/250g，1勺 ≈ 15g';
-    document.body.appendChild(tip);
-
-    setTimeout(() => {
-        tip.remove();
-    }, 3000);
-}
-
+// ========== 加载今日记录 ==========
 async function loadTodayRecords() {
     if (!currentUser) return;
-
     const container = document.getElementById('todayRecords');
     if (!container) return;
 
@@ -419,9 +323,7 @@ async function loadTodayRecords() {
             const groupedByMeal = {};
             for (const record of data.records) {
                 const mealKey = record.mealType;
-                if (!groupedByMeal[mealKey]) {
-                    groupedByMeal[mealKey] = [];
-                }
+                if (!groupedByMeal[mealKey]) groupedByMeal[mealKey] = [];
                 groupedByMeal[mealKey].push(record);
             }
 
@@ -430,25 +332,28 @@ async function loadTodayRecords() {
             for (const meal of mealOrder) {
                 if (groupedByMeal[meal] && groupedByMeal[meal].length > 0) {
                     html += `<div style="margin-bottom: 16px;">
-                        <strong style="font-size: 0.9rem; color: #667eea;">${getMealName(meal)}</strong>
+                        <strong style="color: #667eea;">${getMealName(meal)}</strong>
                         <div style="margin-top: 8px;">`;
                     for (const record of groupedByMeal[meal]) {
                         let scoreClass = 'score-good';
                         if (record.healthScore >= 80) scoreClass = 'score-excellent';
                         if (record.healthScore < 60) scoreClass = 'score-poor';
 
-                        html += `<div class="record-item" style="margin-bottom: 8px;">
-                            <div style="flex:1">
-                                ${escapeHtml(record.foodName)} ${record.grams ? record.grams + 'g' : ''}
-                                ${record.notes ? '<br><small style="color:#999;">📝 ' + escapeHtml(record.notes) + '</small>' : ''}
-                            </div>
-                            <div style="display: flex; gap: 8px; align-items: center;">
-                                <div class="${scoreClass}" style="font-weight:bold; min-width:40px; text-align:center;">
-                                    ${record.healthScore}
-                                </div>
-                                <button class="edit-record-btn" onclick="editDietRecord('${record.id}')" title="编辑">✏️</button>
-                                <button class="delete-record-btn" onclick="deleteDietRecord('${record.id}')" title="删除">🗑️</button>
-                            </div>
+                        // 优先显示原始输入，没有则显示克数
+                        let amountDisplay = '';
+                        if (record.originalAmount && record.originalUnit && record.originalUnit !== 'g') {
+                            amountDisplay = ` ${record.originalAmount}${record.originalUnit}`;
+                        } else if (record.estimatedGrams) {
+                            amountDisplay = `约${record.estimatedGrams}g`;
+                        } else if (record.grams) {
+                            amountDisplay = ` ${record.grams}g`;
+                        }
+
+                        html += `<div class="record-item" style="display:flex; justify-content:space-between; align-items:center; padding:8px; border-bottom:1px solid #eee;">
+                            <div style="flex:1">${escapeHtml(record.foodName)}${amountDisplay}</div>
+                            <div class="${scoreClass}" style="font-weight:bold; padding:2px 8px; border-radius:20px; background:#f0f2f5;">${record.healthScore}</div>
+                            <button class="edit-record-btn" onclick="editDietRecord('${record.id}')" style="background:none; border:none; cursor:pointer; margin-left:8px;">✏️</button>
+                            <button class="delete-record-btn" onclick="deleteDietRecord('${record.id}')" style="background:none; border:none; cursor:pointer;">🗑️</button>
                         </div>`;
                     }
                     html += `</div></div>`;
@@ -456,260 +361,175 @@ async function loadTodayRecords() {
             }
             container.innerHTML = html;
         } else {
-            container.innerHTML = '<p style="color:#999; text-align:center; padding:20px;">今日暂无饮食记录</p>';
+            container.innerHTML = '<p style="text-align:center; padding:20px; color:#999;">今日暂无饮食记录</p>';
         }
     } catch (error) {
-        console.error('加载饮食记录失败:', error);
-        container.innerHTML = '<p style="color:#999; text-align:center;">加载失败</p>';
+        container.innerHTML = '<p style="text-align:center; color:#999;">加载失败</p>';
     }
 }
 
-async function loadWeekReport() {
+// ========== 编辑和删除 ==========
+async function editDietRecord(recordId) {
     if (!currentUser) return;
 
+    try {
+        const response = await fetch(`${API_BASE}/api/diet/meal-records/${currentUser.userId}?recordId=${recordId}`);
+        const data = await response.json();
+
+        if (data.success && data.records) {
+            editingRecordId = recordId;
+            editingMealKey = data.mealType;
+            editingMealDate = data.recordDate;
+            currentMeal = data.mealType;
+            deletedRecordIds = [];
+
+            // 加载该餐次的所有食物
+            foodItems = data.records.map(record => {
+                let amount = record.grams;
+                let unit = 'g';
+
+                // 从克数反推可能的原始单位
+                if (record.originalAmount && record.originalUnit) {
+                    amount = record.originalAmount;
+                    unit = record.originalUnit;
+                } else if (record.grams) {
+                    for (const [u, conv] of Object.entries(unitConversion)) {
+                        if (u !== 'g' && conv.toGrams > 0 && Math.abs(record.grams / conv.toGrams - 1) < 0.3) {
+                            unit = u;
+                            amount = parseFloat((record.grams / conv.toGrams).toFixed(1));
+                            break;
+                        }
+                    }
+                }
+
+                return {
+                    id: record.id,
+                    name: record.foodName,
+                    amount: amount,
+                    unit: unit,
+                    grams: record.grams,
+                    notes: record.notes
+                };
+            });
+
+            if (foodItems.length === 0) {
+                addFoodItem();
+            }
+
+            // 设置备注
+            const firstWithNotes = foodItems.find(f => f.notes);
+            const notesInput = document.getElementById('mealNotes');
+            if (notesInput) notesInput.value = firstWithNotes?.notes || '';
+
+            renderDietPanel();
+        } else {
+            alert('获取记录失败');
+        }
+    } catch (error) {
+        console.error('获取记录失败:', error);
+        alert('获取记录失败');
+    }
+}
+
+async function deleteDietRecord(recordId) {
+    if (!confirm('确定删除吗？')) return;
+    try {
+        const response = await fetch(`${API_BASE}/api/diet/record/${recordId}?userId=${currentUser.userId}`, {
+            method: 'DELETE'
+        });
+        const data = await response.json();
+        if (data.success) {
+            alert('删除成功');
+            await loadTodayRecords();
+            await loadWeekReport();
+        } else {
+            alert('删除失败');
+        }
+    } catch (error) {
+        alert('网络错误');
+    }
+}
+
+// ========== 周报告（AI增强版） ==========
+async function loadWeekReport() {
+    if (!currentUser) return;
     const container = document.getElementById('weekReportContent');
     if (!container) return;
 
-    container.innerHTML = '<div class="loading-spinner"></div> 加载中...';
+    container.innerHTML = '<div class="loading-spinner"></div> AI正在分析您的饮食报告...';
 
     try {
-        const response = await fetch(`${API_BASE}/api/diet/week/${currentUser.userId}`);
+        // 调用 AI 报告接口
+        const response = await fetch(`${API_BASE}/api/agent/diet-report/${currentUser.userId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ constitution: currentUser.constitution || '平和质' })
+        });
         const data = await response.json();
 
-        if (data.records && data.records.length > 0) {
-            const reportHtml = generateWeekReportHtml(data.records);
+        if (data.success && data.records) {
+            const reportHtml = generateWeekReportWithAI(data.records, data.stats, data.aiReport);
             container.innerHTML = reportHtml;
         } else {
-            container.innerHTML = '<p style="color:#999; text-align:center; padding:20px;">暂无饮食记录，请先记录您的饮食</p>';
+            // 降级到普通报告
+            await loadWeekReportFallback(container);
         }
     } catch (error) {
-        console.error('加载周报告失败:', error);
-        container.innerHTML = '<p style="color:#999; text-align:center;">加载失败，请检查网络连接</p>';
+        console.error('加载AI报告失败:', error);
+        await loadWeekReportFallback(container);
     }
 }
 
-// 替换 generateWeekReportHtml 函数
-function generateWeekReportHtml(records) {
-    const groupedByDate = {};
-
-    // ========== 第一步：计算各项营养指标 ==========
-    let totalScore = 0;
-    let totalRecords = records.length;
-    let vegetableCount = 0;
-    let proteinCount = 0;
-    let breakfastCount = 0;
-
-    // 新增的营养指标变量
-    let totalVegetablesGrams = 0;
-    let totalFruitGrams = 0;
-    let totalProteinGrams = 0;
-    let totalFiberGrams = 0;
-    let totalWaterMl = 0;
-    const uniqueFoods = new Set();
-
-    // 记录天数
-    const uniqueDates = new Set();
-
-    for (const record of records) {
-        // 统计原有指标
-        totalScore += record.healthScore || 0;
-        const foodName = record.foodName || '';
-        const grams = record.grams || 0;
-
-        // 记录唯一日期
-        let date = record.recordDate;
-        if (date && date.includes('T')) {
-            date = date.split('T')[0];
-        } else if (date) {
-            date = date.toString().split(' ')[0];
-        }
-        if (date && date !== '未知日期') {
-            uniqueDates.add(date);
-        }
-
-        // 记录唯一食物
-        uniqueFoods.add(foodName);
-
-        // 蔬菜识别和克数统计
-        if (foodName.includes('蔬菜') || foodName.includes('青菜') || foodName.includes('菜') ||
-            foodName.includes('西兰花') || foodName.includes('菠菜') || foodName.includes('白菜') ||
-            foodName.includes('西红柿') || foodName.includes('黄瓜') || foodName.includes('萝卜')) {
-            vegetableCount++;
-            totalVegetablesGrams += grams;
-        }
-
-        // 水果识别
-        if (foodName.includes('苹果') || foodName.includes('梨') || foodName.includes('香蕉') ||
-            foodName.includes('橙子') || foodName.includes('猕猴桃') || foodName.includes('草莓') ||
-            foodName.includes('葡萄') || foodName.includes('西瓜')) {
-            totalFruitGrams += grams;
-        }
-
-        // 蛋白质识别和克数统计
-        if (foodName.includes('肉') || foodName.includes('蛋') || foodName.includes('鱼') ||
-            foodName.includes('豆腐') || foodName.includes('虾') || foodName.includes('鸡') ||
-            foodName.includes('牛奶') || foodName.includes('豆浆')) {
-            proteinCount++;
-            // 简单估算蛋白质含量（实际克数 * 0.2 约等于蛋白质克数）
-            totalProteinGrams += grams * 0.2;
-        }
-
-        // 膳食纤维估算（蔬菜水果含纤维较多）
-        if (foodName.includes('蔬菜') || foodName.includes('青菜') || foodName.includes('西兰花') ||
-            foodName.includes('菠菜') || foodName.includes('苹果') || foodName.includes('香蕉') ||
-            foodName.includes('燕麦') || foodName.includes('玉米') || foodName.includes('粗粮')) {
-            totalFiberGrams += grams * 0.03; // 假设纤维含量约3%
-        }
-
-        // 水分估算
-        if (foodName.includes('水') || foodName.includes('汤') || foodName.includes('牛奶') ||
-            foodName.includes('豆浆') || foodName.includes('茶') || foodName.includes('咖啡')) {
-            totalWaterMl += grams * 0.9;
-        }
-
-        if (record.mealType === 'BREAKFAST') {
-            breakfastCount++;
-        }
-
-        // 按日期分组
-        let recordDate = record.recordDate;
-        if (recordDate && recordDate.includes('T')) {
-            recordDate = recordDate.split('T')[0];
-        } else if (recordDate) {
-            recordDate = recordDate.toString().split(' ')[0];
+async function loadWeekReportFallback(container) {
+    try {
+        const response = await fetch(`${API_BASE}/api/diet/week/${currentUser.userId}`);
+        const data = await response.json();
+        if (data.records && data.records.length > 0) {
+            container.innerHTML = generateWeekReportHtml(data.records);
         } else {
-            recordDate = '未知日期';
+            container.innerHTML = '<p style="text-align:center; padding:20px;">暂无饮食记录</p>';
         }
+    } catch (error) {
+        container.innerHTML = '<p style="text-align:center; padding:20px;">加载失败，请刷新重试</p>';
+    }
+}
 
-        if (!groupedByDate[recordDate]) {
-            groupedByDate[recordDate] = [];
-        }
-        groupedByDate[recordDate].push(record);
+// AI增强版周报告HTML生成
+function generateWeekReportWithAI(records, stats, aiReport) {
+    // 按日期分组
+    const groupedByDate = {};
+    for (const record of records) {
+        let date = record.recordDate;
+        if (date && date.includes('T')) date = date.split('T')[0];
+        if (!groupedByDate[date]) groupedByDate[date] = [];
+        groupedByDate[date].push(record);
     }
 
-    const dayCount = uniqueDates.size || 1;
-    const avgScore = totalRecords > 0 ? (totalScore / totalRecords).toFixed(0) : 0;
-    const avgVegetables = totalVegetablesGrams / dayCount;
-    const avgFruit = totalFruitGrams / dayCount;
-    const avgProtein = totalProteinGrams / dayCount;
-    const avgFiber = totalFiberGrams / dayCount;
-    const avgWater = totalWaterMl / dayCount;
-    const foodTypeCount = uniqueFoods.size;
-
-    let scoreLevel = '';
-    let scoreColor = '';
-    if (avgScore >= 80) {
-        scoreLevel = '优秀';
-        scoreColor = '#10b981';
-    } else if (avgScore >= 60) {
-        scoreLevel = '良好';
-        scoreColor = '#f59e0b';
-    } else {
-        scoreLevel = '需改进';
-        scoreColor = '#ef4444';
-    }
-
-    // 计算蔬菜、蛋白质、纤维的达标状态
-    const vegStatus = avgVegetables >= 300 ? '✅ 达标' : '⚠️ 建议增加';
-    const proteinStatus = avgProtein >= 60 ? '✅ 充足' : '⚠️ 建议增加';
-    const fiberStatus = avgFiber >= 25 ? '✅ 充足' : '⚠️ 建议增加';
-    const fruitStatus = avgFruit >= 200 ? '✅ 达标' : '⚠️ 建议增加';
+    let scoreColor = '#f59e0b', scoreLevel = '良好';
+    const avgScore = stats?.avgScore || 0;
+    if (avgScore >= 80) { scoreColor = '#10b981'; scoreLevel = '优秀'; }
+    else if (avgScore < 60) { scoreColor = '#ef4444'; scoreLevel = '需改进'; }
 
     let html = `
         <div style="padding: 8px;">
             <div style="text-align: center; margin-bottom: 20px;">
-                <span style="font-size: 2rem;">📊</span>
-                <h3 style="margin: 8px 0 4px;">近7日饮食报告</h3>
+                <h3 style="margin: 0;">📊 近7日饮食报告</h3>
                 <p style="color: #666; font-size: 0.8rem;">${new Date().toLocaleDateString()}</p>
             </div>
             
-            <div style="display: flex; justify-content: space-around; margin-bottom: 24px; flex-wrap: wrap; gap: 12px;">
+            <div style="display: flex; justify-content: space-around; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
                 <div style="text-align: center; background: #f0f2f5; padding: 12px 20px; border-radius: 12px;">
                     <div style="font-size: 1.8rem; font-weight: bold; color: ${scoreColor};">${avgScore}</div>
-                    <div style="font-size: 0.7rem; color: #666;">平均健康评分</div>
-                    <div style="font-size: 0.8rem; margin-top: 4px;">${scoreLevel}</div>
+                    <div style="font-size: 0.7rem;">平均评分</div>
+                    <div style="font-size: 0.7rem; color: ${scoreColor};">${scoreLevel}</div>
                 </div>
                 <div style="text-align: center; background: #f0f2f5; padding: 12px 20px; border-radius: 12px;">
-                    <div style="font-size: 1.8rem; font-weight: bold; color: #667eea;">${totalRecords}</div>
-                    <div style="font-size: 0.7rem; color: #666;">总记录餐数</div>
+                    <div style="font-size: 1.8rem; font-weight: bold;">${stats?.totalRecords || 0}</div>
+                    <div style="font-size: 0.7rem;">总记录餐数</div>
                 </div>
                 <div style="text-align: center; background: #f0f2f5; padding: 12px 20px; border-radius: 12px;">
-                    <div style="font-size: 1.8rem; font-weight: bold; color: #667eea;">${Object.keys(groupedByDate).length}</div>
-                    <div style="font-size: 0.7rem; color: #666;">记录天数</div>
-                </div>
-            </div>
-            
-            <div style="margin-bottom: 20px;">
-                <h4 style="margin-bottom: 12px;">📈 营养分析</h4>
-                <div style="display: flex; gap: 16px; flex-wrap: wrap;">
-                    <div style="flex: 1; background: #f0f2f5; padding: 10px; border-radius: 8px;">
-                        <div style="font-size: 0.7rem; color: #666;">🥬 蔬菜摄入</div>
-                        <div style="font-size: 1.2rem; font-weight: bold;">${avgVegetables.toFixed(0)}g/天</div>
-                        <div style="font-size: 0.7rem; color: ${avgVegetables >= 300 ? '#10b981' : '#f59e0b'};">${vegStatus}</div>
-                    </div>
-                    <div style="flex: 1; background: #f0f2f5; padding: 10px; border-radius: 8px;">
-                        <div style="font-size: 0.7rem; color: #666;">🍎 水果摄入</div>
-                        <div style="font-size: 1.2rem; font-weight: bold;">${avgFruit.toFixed(0)}g/天</div>
-                        <div style="font-size: 0.7rem; color: ${avgFruit >= 200 ? '#10b981' : '#f59e0b'};">${fruitStatus}</div>
-                    </div>
-                    <div style="flex: 1; background: #f0f2f5; padding: 10px; border-radius: 8px;">
-                        <div style="font-size: 0.7rem; color: #666;">🥩 蛋白质摄入</div>
-                        <div style="font-size: 1.2rem; font-weight: bold;">${avgProtein.toFixed(0)}g/天</div>
-                        <div style="font-size: 0.7rem; color: ${avgProtein >= 60 ? '#10b981' : '#f59e0b'};">${proteinStatus}</div>
-                    </div>
-                    <div style="flex: 1; background: #f0f2f5; padding: 10px; border-radius: 8px;">
-                        <div style="font-size: 0.7rem; color: #666;">🌾 膳食纤维</div>
-                        <div style="font-size: 1.2rem; font-weight: bold;">${avgFiber.toFixed(0)}g/天</div>
-                        <div style="font-size: 0.7rem; color: ${avgFiber >= 25 ? '#10b981' : '#f59e0b'};">${fiberStatus}</div>
-                    </div>
-                </div>
-            </div>
-            
-            <div style="margin-bottom: 20px;">
-                <h4 style="margin-bottom: 12px;">🥗 膳食指南对比（中国居民膳食指南2022）</h4>
-                <div style="background: #f8f9fc; border-radius: 8px; overflow: hidden;">
-                    <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
-                        <thead>
-                            <tr style="background: #eef2ff;">
-                                <th style="padding: 8px; text-align: left;">指标</th>
-                                <th style="padding: 8px; text-align: left;">实际摄入</th>
-                                <th style="padding: 8px; text-align: left;">推荐值</th>
-                                <th style="padding: 8px; text-align: center;">状态</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr style="border-bottom: 1px solid #e2e8f0;">
-                                <td style="padding: 8px;">🥬 蔬菜</td>
-                                <td style="padding: 8px;">${avgVegetables.toFixed(0)}g/天</td>
-                                <td style="padding: 8px;">300-500g/天</td>
-                                <td style="padding: 8px; text-align: center;">${avgVegetables >= 300 ? '✅' : '⚠️'}</td>
-                            </tr>
-                            <tr style="border-bottom: 1px solid #e2e8f0;">
-                                <td style="padding: 8px;">🍎 水果</td>
-                                <td style="padding: 8px;">${avgFruit.toFixed(0)}g/天</td>
-                                <td style="padding: 8px;">200-350g/天</td>
-                                <td style="padding: 8px; text-align: center;">${avgFruit >= 200 ? '✅' : '⚠️'}</td>
-                            </tr>
-                            <tr style="border-bottom: 1px solid #e2e8f0;">
-                                <td style="padding: 8px;">🥩 蛋白质</td>
-                                <td style="padding: 8px;">${avgProtein.toFixed(0)}g/天</td>
-                                <td style="padding: 8px;">60-75g/天</td>
-                                <td style="padding: 8px; text-align: center;">${avgProtein >= 60 ? '✅' : '⚠️'}</td>
-                            </tr>
-                            <tr style="border-bottom: 1px solid #e2e8f0;">
-                                <td style="padding: 8px;">🌾 膳食纤维</td>
-                                <td style="padding: 8px;">${avgFiber.toFixed(0)}g/天</td>
-                                <td style="padding: 8px;">25-30g/天</td>
-                                <td style="padding: 8px; text-align: center;">${avgFiber >= 25 ? '✅' : '⚠️'}</td>
-                            </tr>
-                            <tr>
-                                <td style="padding: 8px;">🍽️ 食物多样性</td>
-                                <td style="padding: 8px;">${foodTypeCount}种/周</td>
-                                <td style="padding: 8px;">≥12种/周</td>
-                                <td style="padding: 8px; text-align: center;">${foodTypeCount >= 12 ? '✅' : '⚠️'}</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                    <div style="font-size: 1.8rem; font-weight: bold;">${stats?.recordDays || 0}</div>
+                    <div style="font-size: 0.7rem;">记录天数</div>
                 </div>
             </div>
             
@@ -720,260 +540,202 @@ function generateWeekReportHtml(records) {
     const sortedDates = Object.keys(groupedByDate).sort().reverse();
     for (const date of sortedDates) {
         const dayRecords = groupedByDate[date];
-        const dayTotalScore = dayRecords.reduce((sum, r) => sum + (r.healthScore || 0), 0);
-        const dayAvgScore = (dayTotalScore / dayRecords.length).toFixed(0);
-
-        // 计算当日蔬菜摄入
-        let dayVegGrams = 0;
-        for (const record of dayRecords) {
-            const foodName = record.foodName || '';
-            if (foodName.includes('蔬菜') || foodName.includes('青菜') || foodName.includes('菜')) {
-                dayVegGrams += record.grams || 0;
-            }
-        }
+        const dayAvgScore = (dayRecords.reduce((s, r) => s + (r.healthScore || 0), 0) / dayRecords.length).toFixed(0);
 
         html += `
             <div style="margin-bottom: 16px; border-left: 3px solid #667eea; padding-left: 12px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
                     <strong>📅 ${date}</strong>
-                    <span style="display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 0.7rem; font-weight: 500; background: #dbeafe; color: #1e40af;">评分 ${dayAvgScore}</span>
-                    ${dayVegGrams > 0 ? `<span style="font-size: 0.7rem; color: #666;">🥬 ${dayVegGrams}g蔬菜</span>` : ''}
+                    <span style="background: #dbeafe; padding: 2px 8px; border-radius: 20px; font-size: 0.7rem;">评分 ${dayAvgScore}</span>
                 </div>
         `;
 
         for (const record of dayRecords) {
             const mealName = getMealName(record.mealType);
+            let amountDisplay = '';
+            if (record.originalAmount && record.originalUnit && record.originalUnit !== 'g') {
+                amountDisplay = ` ${record.originalAmount}${record.originalUnit}`;
+            } else if (record.estimatedGrams) {
+                amountDisplay = `约${record.estimatedGrams}g`;
+            } else if (record.grams) {
+                amountDisplay = ` ${record.grams}g`;
+            }
+
             html += `
-                <div style="font-size: 0.85rem; padding: 4px 0; color: #555; display: flex; justify-content: space-between;">
-                    <span>${mealName}：${escapeHtml(record.foodName)} ${record.grams ? record.grams + 'g' : ''}</span>
-                    <span style="font-size: 0.7rem; color: ${record.healthScore >= 80 ? '#10b981' : (record.healthScore >= 60 ? '#f59e0b' : '#ef4444')};">${record.healthScore}分</span>
+                <div style="font-size: 0.85rem; padding: 4px 0; display: flex; justify-content: space-between;">
+                    <span>${mealName}：${escapeHtml(record.foodName)}${amountDisplay}</span>
+                    <span style="color: ${record.healthScore >= 80 ? '#10b981' : (record.healthScore >= 60 ? '#f59e0b' : '#ef4444')};">${record.healthScore}分</span>
                 </div>
             `;
         }
-
         html += `</div>`;
     }
 
     html += `
             </div>
-            
             <div style="margin-top: 20px; padding: 12px; background: #eef2ff; border-radius: 8px;">
-                <div style="font-size: 0.8rem; color: #667eea;">💡 饮食建议</div>
-                <div style="font-size: 0.8rem; margin-top: 8px;">
-                    ${generateAdviceTextEnhanced(avgScore, avgVegetables, avgFruit, avgProtein, avgFiber, breakfastCount, foodTypeCount)}
-                </div>
+                <div style="font-size: 0.8rem; color: #667eea; margin-bottom: 8px;">🤖 AI饮食建议</div>
+                <div style="font-size: 0.85rem; line-height: 1.5;">${aiReport || '暂无AI建议'}</div>
             </div>
         </div>
     `;
-
-    // 计算雷达图数据百分比
-    const vegPercent = Math.min(100, (avgVegetables / 300 * 100)).toFixed(0);
-    const fruitPercent = Math.min(100, (avgFruit / 200 * 100)).toFixed(0);
-    const proteinPercent = Math.min(100, (avgProtein / 60 * 100)).toFixed(0);
-    const fiberPercent = Math.min(100, (avgFiber / 25 * 100)).toFixed(0);
-    const waterPercent = Math.min(100, (avgWater / 1500 * 100)).toFixed(0);
-    const diversityPercent = Math.min(100, (foodTypeCount / 12 * 100)).toFixed(0);
-
-    // 生成唯一ID用于雷达图
-    const radarChartId = 'radarChart_' + Date.now();
-
-    // 雷达图HTML部分 - 替换原来的JSON显示
-    html += `
-        <div style="margin-top: 20px; padding: 12px; background: #f0f2f5; border-radius: 12px;">
-            <h4 style="margin-bottom: 12px;">📐 膳食均衡雷达图</h4>
-            <div style="position: relative; height: 280px; width: 100%; margin: 0 auto;">
-                <canvas id="${radarChartId}" style="max-height: 250px; width: 100%;"></canvas>
-            </div>
-            <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 12px; font-size: 0.7rem;">
-                <div><span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #667eea; margin-right: 4px;"></span> 蔬菜 300g/天</div>
-                <div><span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #f59e0b; margin-right: 4px;"></span> 水果 200g/天</div>
-                <div><span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #10b981; margin-right: 4px;"></span> 蛋白质 60g/天</div>
-                <div><span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #ef4444; margin-right: 4px;"></span> 膳食纤维 25g/天</div>
-                <div><span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #8b5cf6; margin-right: 4px;"></span> 饮水 1500ml/天</div>
-                <div><span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #ec489a; margin-right: 4px;"></span> 食物多样性 12种/周</div>
-            </div>
-            <div style="font-size: 0.7rem; color: #666; margin-top: 12px; text-align: center;">
-                💡 雷达图值 = 实际摄入/推荐值 × 100%<br>
-                📖 参考依据：《中国居民膳食指南(2022)》
-            </div>
-        </div>
-    `;
-
-    // 返回HTML后，延迟绘制雷达图
-    setTimeout(() => {
-        drawRadarChart(radarChartId, vegPercent, fruitPercent, proteinPercent, fiberPercent, waterPercent, diversityPercent);
-    }, 100);
 
     return html;
 }
 
-// 绘制雷达图的函数
-function drawRadarChart(chartId, veg, fruit, protein, fiber, water, diversity) {
-    const canvas = document.getElementById(chartId);
-    if (!canvas) return;
-
-    // 如果已经存在图表实例，先销毁
-    if (canvas.chart) {
-        canvas.chart.destroy();
+// 普通版周报告HTML生成（备用）
+function generateWeekReportHtml(records) {
+    const groupedByDate = {};
+    for (const record of records) {
+        let date = record.recordDate;
+        if (date && date.includes('T')) date = date.split('T')[0];
+        if (!groupedByDate[date]) groupedByDate[date] = [];
+        groupedByDate[date].push(record);
     }
 
-    const ctx = canvas.getContext('2d');
+    let totalScore = 0;
+    let totalRecords = records.length;
+    let vegetableCount = 0, proteinCount = 0, breakfastCount = 0;
+    let totalVegetablesGrams = 0, totalProteinGrams = 0;
+    const uniqueFoods = new Set();
+    const uniqueDates = new Set();
 
-    canvas.chart = new Chart(ctx, {
-        type: 'radar',
-        data: {
-            labels: ['蔬菜', '水果', '蛋白质', '膳食纤维', '饮水', '食物多样性'],
-            datasets: [{
-                label: '您的摄入达标率',
-                data: [veg, fruit, protein, fiber, water, diversity],
-                backgroundColor: 'rgba(102, 126, 234, 0.2)',
-                borderColor: '#667eea',
-                borderWidth: 2,
-                pointBackgroundColor: '#667eea',
-                pointBorderColor: '#fff',
-                pointRadius: 4,
-                pointHoverRadius: 6,
-                fill: true
-            }, {
-                label: '推荐标准 (100%)',
-                data: [100, 100, 100, 100, 100, 100],
-                backgroundColor: 'rgba(200, 200, 200, 0.1)',
-                borderColor: '#94a3b8',
-                borderWidth: 1.5,
-                borderDash: [5, 5],
-                pointBackgroundColor: '#94a3b8',
-                pointRadius: 2,
-                fill: false
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: true,
-            scales: {
-                r: {
-                    beginAtZero: true,
-                    max: 100,
-                    ticks: {
-                        stepSize: 20,
-                        callback: function(value) {
-                            return value + '%';
-                        }
-                    },
-                    grid: {
-                        color: '#e2e8f0'
-                    },
-                    pointLabels: {
-                        font: {
-                            size: 11
-                        },
-                        color: '#475569'
-                    }
-                }
-            },
-            plugins: {
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            let label = context.dataset.label || '';
-                            let value = context.raw;
-                            return `${label}: ${value}%`;
-                        }
-                    }
-                },
-                legend: {
-                    position: 'bottom',
-                    labels: {
-                        font: {
-                            size: 11
-                        },
-                        boxWidth: 12,
-                        usePointStyle: true
-                    }
-                }
-            }
+    for (const record of records) {
+        totalScore += record.healthScore || 0;
+        const foodName = record.foodName || '';
+        const grams = record.grams || 0;
+
+        let date = record.recordDate;
+        if (date && date.includes('T')) uniqueDates.add(date.split('T')[0]);
+
+        uniqueFoods.add(foodName);
+
+        if (foodName.includes('蔬菜') || foodName.includes('菜')) {
+            vegetableCount++;
+            totalVegetablesGrams += grams;
         }
-    });
+        if (foodName.includes('肉') || foodName.includes('蛋') || foodName.includes('鱼') || foodName.includes('豆腐')) {
+            proteinCount++;
+            totalProteinGrams += grams * 0.2;
+        }
+        if (record.mealType === 'BREAKFAST') breakfastCount++;
+    }
+
+    const dayCount = uniqueDates.size || 1;
+    const avgScore = totalRecords > 0 ? (totalScore / totalRecords).toFixed(0) : 0;
+    const avgVegetables = (totalVegetablesGrams / dayCount).toFixed(0);
+    const avgProtein = (totalProteinGrams / dayCount).toFixed(0);
+    const foodTypeCount = uniqueFoods.size;
+
+    let scoreColor = '#f59e0b', scoreLevel = '良好';
+    if (avgScore >= 80) { scoreColor = '#10b981'; scoreLevel = '优秀'; }
+    else if (avgScore < 60) { scoreColor = '#ef4444'; scoreLevel = '需改进'; }
+
+    let adviceText = '';
+    if (avgVegetables < 300) adviceText += '🥬 蔬菜摄入不足，建议每天吃够300g绿叶蔬菜。<br>';
+    if (avgProtein < 60) adviceText += '🥩 蛋白质摄入不足，建议增加鸡蛋、鱼肉、豆腐。<br>';
+    if (breakfastCount < 5) adviceText += '🌅 早餐次数偏少，规律吃早餐有助于全天代谢。<br>';
+    if (foodTypeCount < 12) adviceText += '🍽️ 食物种类偏少，建议每周吃够12种以上不同食物。<br>';
+    if (!adviceText) adviceText = '👍 饮食结构良好，继续保持！';
+
+    let html = `
+        <div style="padding: 8px;">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h3>📊 近7日饮食报告</h3>
+            </div>
+            <div style="display: flex; justify-content: space-around; margin-bottom: 20px;">
+                <div style="text-align:center;"><div style="font-size:24px; color:${scoreColor};">${avgScore}</div><div>平均评分</div></div>
+                <div style="text-align:center;"><div style="font-size:24px;">${totalRecords}</div><div>总记录餐数</div></div>
+                <div style="text-align:center;"><div style="font-size:24px;">${uniqueDates.size}</div><div>记录天数</div></div>
+            </div>
+            <div style="margin-bottom: 20px; padding: 12px; background: #f0f2f5; border-radius: 8px;">
+                <div>🥬 蔬菜摄入: ${avgVegetables}g/天 ${avgVegetables >= 300 ? '✅' : '⚠️'}</div>
+                <div>🥩 蛋白质摄入: ${avgProtein}g/天 ${avgProtein >= 60 ? '✅' : '⚠️'}</div>
+                <div>🌅 早餐次数: ${breakfastCount}次/周 ${breakfastCount >= 5 ? '✅' : '⚠️'}</div>
+            </div>
+            <div style="margin-top: 20px; padding: 12px; background: #eef2ff; border-radius: 8px;">
+                <div>💡 饮食建议</div>
+                <div>${adviceText}</div>
+            </div>
+        </div>
+    `;
+    return html;
 }
 
+// ========== 主渲染函数 ==========
+async function renderDietPanel() {
+    const panel = document.getElementById('diet-panel');
+    if (!panel) return;
 
-// 增强版建议生成函数
-function generateAdviceTextEnhanced(avgScore, avgVegetables, avgFruit, avgProtein, avgFiber, breakfastCount, foodTypeCount) {
-    const advices = [];
+    // 加载常用食物
+    await loadCommonFoods();
 
-    if (avgScore < 60) {
-        advices.push('📌 本周饮食评分偏低，建议减少高油高糖食物，增加蔬菜水果摄入。');
-    } else if (avgScore < 80) {
-        advices.push('📌 饮食基本健康，继续优化营养搭配会更好。');
-    } else {
-        advices.push('🎉 饮食评分优秀！继续保持良好的饮食习惯！');
-    }
+    panel.innerHTML = `
+        <div class="form-card" style="background:white; border-radius:16px; padding:16px; margin-bottom:20px;">
+            <h4 style="margin:0 0 12px 0;">🍽️ ${editingRecordId ? '编辑饮食' : '记录今日饮食'}</h4>
+            ${editingRecordId ? '<div style="background:#eef2ff; padding:8px; border-radius:8px; margin-bottom:12px;">✏️ 正在编辑模式</div>' : ''}
+            
+            <div class="meal-buttons" style="display:flex; gap:10px; margin-bottom:16px;">
+                <button class="meal-btn" data-meal="BREAKFAST" onclick="selectMeal('BREAKFAST')" style="flex:1; padding:10px; border:none; border-radius:25px; cursor:pointer;">🌅 早餐</button>
+                <button class="meal-btn" data-meal="LUNCH" onclick="selectMeal('LUNCH')" style="flex:1; padding:10px; border:none; border-radius:25px; cursor:pointer;">☀️ 午餐</button>
+                <button class="meal-btn" data-meal="DINNER" onclick="selectMeal('DINNER')" style="flex:1; padding:10px; border:none; border-radius:25px; cursor:pointer;">🌙 晚餐</button>
+                <button class="meal-btn" data-meal="SNACK" onclick="selectMeal('SNACK')" style="flex:1; padding:10px; border:none; border-radius:25px; cursor:pointer;">🍪 加餐</button>
+            </div>
+            
+            ${renderCommonFoodsSection()}
+            
+            <div class="food-list-container" id="foodListContainer">
+                <div id="foodItemsList"></div>
+            </div>
+            
+            <button class="add-food-btn" onclick="addFoodItem()" style="width:100%; padding:12px; background:#f0f2f5; border:none; border-radius:12px; margin:10px 0; cursor:pointer;">+ 添加食物</button>
+            
+            <div class="form-row">
+                <textarea id="mealNotes" rows="2" placeholder="餐次备注（可选）" style="width:100%; padding:10px; border-radius:10px; border:1px solid #e0e4e8; resize:none;"></textarea>
+            </div>
+            
+            <div style="display: flex; gap: 10px;">
+                <button class="btn-primary" onclick="submitMealRecords()" style="flex:1; padding:12px; background:#667eea; color:white; border:none; border-radius:12px; cursor:pointer;">📝 ${editingRecordId ? '保存修改' : '记录本餐'}</button>
+                ${editingRecordId ? '<button class="btn-secondary" onclick="cancelEdit()" style="padding:12px 20px; background:#e0e4e8; border:none; border-radius:12px; cursor:pointer;">取消编辑</button>' : ''}
+            </div>
+        </div>
+        
+        <div class="form-card" style="background:white; border-radius:16px; padding:16px; margin-bottom:20px;">
+            <h4 style="margin:0 0 12px 0;">📅 今日饮食</h4>
+            <div id="todayRecords" class="record-list"></div>
+        </div>
+        
+        <div class="report-card" style="background:white; border-radius:16px; padding:16px;">
+            <div class="report-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                <h4 style="margin:0;">📊 近7日饮食报告</h4>
+                <button class="refresh-report-btn" onclick="loadWeekReport()" style="padding:6px 12px; background:#f0f2f5; border:none; border-radius:20px; cursor:pointer;">🔄 刷新报告</button>
+            </div>
+            <div id="weekReportContent" class="week-report-content">
+                <div class="loading-spinner"></div> 加载中...
+            </div>
+        </div>
+    `;
 
-    if (avgVegetables < 300) {
-        advices.push(`🥬 蔬菜摄入不足（${avgVegetables.toFixed(0)}g/天），建议每天至少吃300g绿叶蔬菜，深色蔬菜占一半。`);
-    }
-    if (avgFruit < 200) {
-        advices.push(`🍎 水果摄入不足（${avgFruit.toFixed(0)}g/天），建议每天吃200-350g新鲜水果。`);
-    }
-    if (avgProtein < 60) {
-        advices.push(`🥩 蛋白质摄入不足（${avgProtein.toFixed(0)}g/天），建议增加鸡蛋、鱼肉、豆腐等优质蛋白。`);
-    }
-    if (avgFiber < 25) {
-        advices.push(`🌾 膳食纤维不足（${avgFiber.toFixed(0)}g/天），建议增加全谷物、豆类、菌菇类食物。`);
-    }
-    if (breakfastCount < 5) {
-        advices.push(`🌅 早餐次数偏少（仅${breakfastCount}次），规律吃早餐有助于全天代谢。`);
-    }
-    if (foodTypeCount < 12) {
-        advices.push(`🍽️ 食物多样性不足（仅${foodTypeCount}种/周），建议每周摄入25种以上不同食物。`);
-    }
-
-    if (advices.length === 0) {
-        advices.push('👍 饮食结构良好，符合膳食指南建议，继续保持！');
-    }
-
-    return advices.join('<br>');
-}
-
-function generateAdviceText(avgScore, vegetableCount, breakfastCount, proteinCount) {
-    const advices = [];
-
-    if (avgScore < 60) {
-        advices.push('📌 本周饮食评分偏低，建议减少高油高糖食物，增加蔬菜水果摄入。');
-    } else if (avgScore < 80) {
-        advices.push('📌 饮食基本健康，继续优化营养搭配会更好。');
-    } else {
-        advices.push('🎉 饮食评分优秀！继续保持良好的饮食习惯！');
-    }
-
-    if (vegetableCount < 7) {
-        advices.push('🥬 蔬菜摄入不足（仅' + vegetableCount + '次），建议每天至少吃300g绿叶蔬菜。');
-    }
-    if (breakfastCount < 5) {
-        advices.push('🌅 早餐次数偏少（仅' + breakfastCount + '次），规律吃早餐有助于全天代谢。');
-    }
-    if (proteinCount < 7) {
-        advices.push('🥩 蛋白质摄入不足（仅' + proteinCount + '次），建议增加鸡蛋、鱼肉、豆腐等优质蛋白。');
-    }
-
-    if (advices.length === 0) {
-        advices.push('👍 饮食结构良好，继续保持！');
+    if (foodItems.length === 0 && !editingRecordId) {
+        addFoodItem();
+    } else if (foodItems.length > 0) {
+        renderFoodItemsList();
     }
 
-    return advices.join('<br>');
-}
-
-function initDietPanel() {
     updateMealButtonActive();
+    await loadTodayRecords();
+    await loadWeekReport();
 }
 
-// 将函数挂载到 window
+// ========== 挂载全局函数 ==========
+window.renderDietPanel = renderDietPanel;
 window.selectMeal = selectMeal;
 window.addFoodItem = addFoodItem;
 window.removeFoodItem = removeFoodItem;
 window.updateFoodItem = updateFoodItem;
 window.submitMealRecords = submitMealRecords;
 window.loadWeekReport = loadWeekReport;
-window.getMealName = getMealName;
 window.editDietRecord = editDietRecord;
 window.deleteDietRecord = deleteDietRecord;
 window.cancelEdit = cancelEdit;
+window.quickAddFood = quickAddFood;

@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Select;
 import org.example.shiyangai.entity.DietRecord;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 @Mapper
 public interface DietRecordMapper extends BaseMapper<DietRecord> {
@@ -18,4 +19,7 @@ public interface DietRecordMapper extends BaseMapper<DietRecord> {
     List<DietRecord> selectByDateRange(@Param("userId") String userId,
                                        @Param("startDate") LocalDate startDate,
                                        @Param("endDate") LocalDate endDate);
+
+    @Select("SELECT food_name, COUNT(*) as count FROM diet_record WHERE user_id = #{userId} GROUP BY food_name ORDER BY count DESC LIMIT #{limit}")
+    List<Map<String, Object>> selectMostUsedFoods(@Param("userId") String userId, @Param("limit") int limit);
 }

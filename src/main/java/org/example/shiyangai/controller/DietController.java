@@ -1,12 +1,16 @@
 package org.example.shiyangai.controller;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.shiyangai.entity.DietRecord;
 import org.example.shiyangai.service.DietRecordService;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +23,8 @@ import java.util.Map;
 public class DietController {
 
     private final DietRecordService dietRecordService;
+
+    private final ObjectMapper objectMapper;
 
     @PostMapping("/record")
     public Map<String, Object> addRecord(@RequestBody DietRecord record) {
@@ -108,5 +114,38 @@ public class DietController {
         response.put("success", true);
         response.put("report", report);
         return response;
+    }
+
+    @GetMapping("/common-foods/{userId}")
+    public ResponseEntity<?> getCommonFoods(@PathVariable String userId, @RequestParam(defaultValue = "6") int limit) {
+        List<Map<String, Object>> foods = dietRecordService.getMostUsedFoods(userId, limit);
+        return ResponseEntity.ok(Map.of("success", true, "foods", foods));
+    }
+
+    @GetMapping("/meal-records/{userId}")
+    public ResponseEntity<?> getMealRecordsByRecordId(@PathVariable String userId,
+                                                      @RequestParam String recordId) {
+        List<DietRecord> records = dietRecordService.getMealRecordsByRecordId(recordId, userId);
+        DietRecord target = dietRecordService.getRecordById(recordId);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "records", records,
+                "mealType", target != null ? target.getMealType() : null,
+                "recordDate", target != null ? target.getRecordDate() : null
+        ));
+    }
+
+    @PutMapping("/meal-records")
+    public ResponseEntity<?> updateMealRecords(@RequestBody Map<String, Object> params) {
+        String userId = (String) params.get("userId");
+        String mealType = (String) params.get("mealType");
+        String recordDateStr = (String) params.get("recordDate");
+        LocalDateTime recordDate = LocalDateTime.parse(recordDateStr);
+
+        List<DietRecord> newRecords = objectMapper.convertValue(params.get("records"), new TypeReference<List<DietRecord>>() {});
+        List<String> deletedIds = (List<String>) params.get("deletedIds");
+
+        boolean success = dietRecordService.updateMealRecords(userId, mealType, recordDate, newRecords, deletedIds);
+        return ResponseEntity.ok(Map.of("success", success));
     }
 }

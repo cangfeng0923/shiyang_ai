@@ -1,4 +1,3 @@
-// service/AIService.java - 完整增强版
 package org.example.shiyangai.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -7,7 +6,6 @@ import org.example.shiyangai.entity.ChatHistory;
 import org.example.shiyangai.entity.IngredientInfo;
 import org.example.shiyangai.entity.HealthProfile;
 import org.example.shiyangai.entity.DietRecord;
-import org.example.shiyangai.enums.ConstitutionType;
 import org.example.shiyangai.mapper.ChatHistoryMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -66,21 +64,18 @@ public class AIService {
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
-
-    // 在类中添加这个字段（和其他字段放在一起）
     private final ExecutorService executorService;
 
-    // 在构造函数中初始化
     public AIService() {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(60))
                 .build();
         this.objectMapper = new ObjectMapper();
-        this.executorService = Executors.newCachedThreadPool();  // 添加这行
+        this.executorService = Executors.newCachedThreadPool();
     }
 
     public SseEmitter chatStream(String userId, String userMessage, String constitution) {
-        SseEmitter emitter = new SseEmitter(120000L); // 2分钟超时
+        SseEmitter emitter = new SseEmitter(120000L);
 
         executorService.execute(() -> {
             try {
@@ -101,28 +96,19 @@ public class AIService {
         return emitter;
     }
 
-    /**
-     * 流式处理核心逻辑
-     */
     private void streamChat(String userId, String userMessage, String constitution, SseEmitter emitter) throws Exception {
         log.info("AI流式对话: userId={}, message={}, constitution={}", userId, userMessage, constitution);
 
-        // 1. 获取用户完整信息
         HealthProfile profile = healthProfileService.getProfile(userId);
         List<DietRecord> todayRecords = dietRecordService.getTodayRecords(userId);
         List<DietRecord> weekRecords = dietRecordService.getWeekRecords(userId);
 
-        // 2. 获取当前节气
         String solarTermAdvice = dynamicSolarTermService.getDynamicSolarTermAdvice(constitution);
-
-        // 3. 获取聊天历史（最近6条）
         List<ChatHistory> history = chatHistoryMapper.getByUserId(userId, 6);
 
-        // 4. 提取用户询问的食物名称
         String foodName = extractFoodName(userMessage);
         IngredientInfo foodInfo = null;
 
-        // 5. 如果用户询问具体食物，调用百度百科获取真实信息
         if (foodName != null && !foodName.isEmpty()) {
             Object cached = redisCacheService.getFoodInfo(foodName);
             if (cached instanceof IngredientInfo) {
@@ -131,45 +117,37 @@ public class AIService {
             } else {
                 try {
                     foodInfo = baiduBaikeService.getIngredientInfo(foodName);
-                    log.info("从百度百科获取食材: {}, 属性={}", foodName, foodInfo != null ? foodInfo.getProperty() : "null");
                     if (foodInfo != null) {
                         redisCacheService.cacheFoodInfo(foodName, foodInfo);
                     }
                 } catch (Exception e) {
-                    log.warn("百度百科获取失败，尝试本地服务: {}", e.getMessage());
+                    log.warn("百度百科获取失败: {}", e.getMessage());
                     foodInfo = onDemandFoodService.getFoodInfo(foodName);
                 }
             }
 
-            // 保存历史记录（异步，不影响流式输出）
             if (foodInfo != null) {
                 saveFoodHistoryAsync(userId, foodName, constitution, foodInfo);
             }
         }
 
-        // 6. 提取症状
         String symptom = extractSymptom(userMessage);
 
-        // 7. 检查是否在询问健康报告
         if (isAskingForReport(userMessage)) {
             String report = healthReportService.generateComprehensiveReport(userId, constitution);
-            // 报告一次性返回
             emitter.send(SseEmitter.event().name("message").data(report));
             emitter.send(SseEmitter.event().name("complete").data(""));
             emitter.complete();
             return;
         }
 
-        // 8. 获取上次对话上下文
         String previousContext = redisCacheService.getChatContext(userId);
 
-        // 9. 构建增强的系统提示词
         String systemPrompt = buildEnhancedSystemPrompt(
                 userId, constitution, profile, todayRecords, weekRecords,
                 solarTermAdvice, foodInfo, symptom, previousContext
         );
 
-        // 10. 构建消息列表
         List<Map<String, String>> messages = new ArrayList<>();
 
         Map<String, String> systemMessage = new HashMap<>();
@@ -177,7 +155,6 @@ public class AIService {
         systemMessage.put("content", systemPrompt);
         messages.add(systemMessage);
 
-        // 添加历史消息
         int historyCount = 0;
         for (ChatHistory h : history) {
             if (historyCount >= 6) break;
@@ -190,19 +167,17 @@ public class AIService {
             historyCount++;
         }
 
-        // 添加当前用户消息
         Map<String, String> userMsg = new HashMap<>();
         userMsg.put("role", "user");
         userMsg.put("content", userMessage);
         messages.add(userMsg);
 
-        // 11. 调用流式API
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("model", "deepseek-chat");
         requestBody.put("messages", messages);
         requestBody.put("temperature", 0.7);
         requestBody.put("max_tokens", 2000);
-        requestBody.put("stream", true);  // 开启流式
+        requestBody.put("stream", true);
 
         String jsonBody = objectMapper.writeValueAsString(requestBody);
 
@@ -214,7 +189,6 @@ public class AIService {
                 .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
                 .build();
 
-        // 发送请求并处理流式响应
         HttpResponse<InputStream> response = httpClient.send(request,
                 HttpResponse.BodyHandlers.ofInputStream());
 
@@ -241,7 +215,6 @@ public class AIService {
 
                             if (!content.isEmpty()) {
                                 fullReply.append(content);
-                                // 逐字发送给前端
                                 emitter.send(SseEmitter.event()
                                         .name("message")
                                         .data(content));
@@ -255,14 +228,10 @@ public class AIService {
 
             String reply = fullReply.toString();
 
-            // 保存聊天记录
             saveChat(userId, "user", userMessage);
             saveChat(userId, "assistant", reply);
-
-            // 保存对话上下文到Redis
             redisCacheService.cacheChatContext(userId, extractContextFromConversation(userMessage, reply));
 
-            // 发送完成信号
             emitter.send(SseEmitter.event().name("complete").data(""));
             emitter.complete();
 
@@ -275,74 +244,52 @@ public class AIService {
         }
     }
 
-    /**
-     * 核心聊天方法 - 增强版
-     */
     public String chat(String userId, String userMessage, String constitution) {
         log.info("AI对话: userId={}, message={}, constitution={}", userId, userMessage, constitution);
 
         try {
-            // 1. 获取用户完整信息
             HealthProfile profile = healthProfileService.getProfile(userId);
             List<DietRecord> todayRecords = dietRecordService.getTodayRecords(userId);
             List<DietRecord> weekRecords = dietRecordService.getWeekRecords(userId);
 
-            // 2. 获取当前节气
             String solarTermAdvice = dynamicSolarTermService.getDynamicSolarTermAdvice(constitution);
-
-            // 3. 获取聊天历史（最近6条）
             List<ChatHistory> history = chatHistoryMapper.getByUserId(userId, 6);
 
-            // 4. 提取用户询问的食物名称
             String foodName = extractFoodName(userMessage);
             IngredientInfo foodInfo = null;
 
-            // 5. 如果用户询问具体食物，调用百度百科获取真实信息
             if (foodName != null && !foodName.isEmpty()) {
-                // 先查缓存
                 Object cached = redisCacheService.getFoodInfo(foodName);
                 if (cached instanceof IngredientInfo) {
                     foodInfo = (IngredientInfo) cached;
-                    log.info("从缓存获取食材: {}", foodName);
                 } else {
                     try {
                         foodInfo = baiduBaikeService.getIngredientInfo(foodName);
-                        log.info("从百度百科获取食材: {}, 属性={}, 功效={}",
-                                foodName,
-                                foodInfo != null ? foodInfo.getProperty() : "null",
-                                foodInfo != null ? foodInfo.getEffect() : "null");
                         if (foodInfo != null) {
                             redisCacheService.cacheFoodInfo(foodName, foodInfo);
                         }
                     } catch (Exception e) {
-                        log.warn("百度百科获取失败，尝试本地服务: {}", e.getMessage());
                         foodInfo = onDemandFoodService.getFoodInfo(foodName);
                     }
                 }
 
-                // ✅ 在这里保存历史记录
                 if (foodInfo != null) {
                     saveFoodHistory(userId, foodName, constitution, foodInfo);
                 }
             }
 
-            // 6. 提取症状
             String symptom = extractSymptom(userMessage);
-            // 7. 检查是否在询问健康报告
             if (isAskingForReport(userMessage)) {
                 return healthReportService.generateComprehensiveReport(userId, constitution);
             }
 
-            // 8. 获取上次对话上下文
             String previousContext = redisCacheService.getChatContext(userId);
 
-            // 9. 构建增强的系统提示词
             String systemPrompt = buildEnhancedSystemPrompt(
                     userId, constitution, profile, todayRecords, weekRecords,
                     solarTermAdvice, foodInfo, symptom, previousContext
             );
 
-            // 10. 构建消息列表
             List<Map<String, String>> messages = new ArrayList<>();
 
             Map<String, String> systemMessage = new HashMap<>();
@@ -350,7 +297,6 @@ public class AIService {
             systemMessage.put("content", systemPrompt);
             messages.add(systemMessage);
 
-            // 添加历史消息（最近6条，排除当前问题）
             int historyCount = 0;
             for (ChatHistory h : history) {
                 if (historyCount >= 6) break;
@@ -363,13 +309,11 @@ public class AIService {
                 historyCount++;
             }
 
-            // 添加当前用户消息
             Map<String, String> userMsg = new HashMap<>();
             userMsg.put("role", "user");
             userMsg.put("content", userMessage);
             messages.add(userMsg);
 
-            // 11. 调用API
             Map<String, Object> requestBody = new HashMap<>();
             requestBody.put("model", "deepseek-chat");
             requestBody.put("messages", messages);
@@ -398,11 +342,8 @@ public class AIService {
                         .path("content")
                         .asText();
 
-                // 保存聊天记录
                 saveChat(userId, "user", userMessage);
                 saveChat(userId, "assistant", reply);
-
-                // 保存对话上下文到Redis（用于下一轮）
                 redisCacheService.cacheChatContext(userId, extractContextFromConversation(userMessage, reply));
 
                 log.info("AI回复成功: userId={}, 回复长度={}", userId, reply.length());
@@ -418,9 +359,6 @@ public class AIService {
         }
     }
 
-    /**
-     * 异步保存历史记录（不阻塞主流程）
-     */
     private void saveFoodHistoryAsync(String userId, String foodName, String constitution, IngredientInfo foodInfo) {
         executorService.submit(() -> {
             try {
@@ -442,22 +380,15 @@ public class AIService {
         });
     }
 
-    /**
-     * 从用户消息中提取食物名称
-     */
     private String extractFoodName(String message) {
         if (message == null) return null;
-
-        // 常见食物关键词
         String[] foodKeywords = {
-                "玉米", "甜玉米", "糯玉米", "苹果", "梨", "香蕉", "西瓜", "葡萄", "草莓", "橙子",
-                "鸡肉", "牛肉", "猪肉", "鱼肉", "鸡蛋", "鸭肉", "羊肉", "虾", "螃蟹",
-                "豆腐", "豆浆", "牛奶", "酸奶",
-                "山药", "红枣", "枸杞", "薏米", "红豆", "绿豆", "银耳", "百合", "莲子",
+                "玉米", "苹果", "梨", "香蕉", "西瓜", "葡萄", "草莓", "橙子",
+                "鸡肉", "牛肉", "猪肉", "鱼肉", "鸡蛋", "鸭肉", "羊肉", "虾",
+                "豆腐", "豆浆", "牛奶", "酸奶", "山药", "红枣", "枸杞", "薏米",
                 "生姜", "大蒜", "韭菜", "冬瓜", "苦瓜", "黄瓜", "萝卜", "胡萝卜",
                 "菠菜", "青菜", "西兰花", "番茄", "茄子", "土豆", "红薯"
         };
-
         for (String keyword : foodKeywords) {
             if (message.contains(keyword)) {
                 return keyword;
@@ -466,9 +397,6 @@ public class AIService {
         return null;
     }
 
-    /**
-     * 提取症状
-     */
     private String extractSymptom(String userMessage) {
         if (userMessage == null) return "";
         if (userMessage.contains("痘") || userMessage.contains("痘痘")) return "长痘";
@@ -484,9 +412,6 @@ public class AIService {
         return "";
     }
 
-    /**
-     * 判断是否在询问报告
-     */
     private boolean isAskingForReport(String message) {
         String lower = message.toLowerCase();
         return lower.contains("报告") || lower.contains("健康报告") ||
@@ -494,19 +419,14 @@ public class AIService {
                 lower.contains("健康总结");
     }
 
-    /**
-     * 构建增强的系统提示词
-     */
     private String buildEnhancedSystemPrompt(String userId, String constitution, HealthProfile profile,
                                              List<DietRecord> todayRecords, List<DietRecord> weekRecords,
                                              String solarTermAdvice, IngredientInfo foodInfo,
                                              String symptom, String previousContext) {
-
         StringBuilder sb = new StringBuilder();
 
         sb.append("你是一位资深的中医老专家，具有30年临床经验。你的回答要亲切自然，像长辈关心晚辈一样。\n\n");
 
-        // ========== 用户信息 ==========
         sb.append("【用户信息】\n");
         sb.append("- 中医体质：").append(constitution).append("\n");
 
@@ -525,7 +445,6 @@ public class AIService {
             }
         }
 
-        // ========== 过敏和忌口信息（重要！） ==========
         if (profile != null) {
             List<String> allergies = healthProfileService.parseJsonArray(profile.getAllergies());
             if (!allergies.isEmpty()) {
@@ -546,7 +465,6 @@ public class AIService {
             }
         }
 
-        // ========== 今日饮食 ==========
         if (!todayRecords.isEmpty()) {
             sb.append("\n【今日饮食记录】\n");
             for (DietRecord record : todayRecords) {
@@ -558,10 +476,8 @@ public class AIService {
             }
         }
 
-        // ========== 一周饮食统计 ==========
         if (!weekRecords.isEmpty()) {
             sb.append("\n【用户近7日详细饮食记录】\n");
-            // 按日期分组显示
             Map<LocalDate, List<DietRecord>> recordsByDay = weekRecords.stream()
                     .collect(Collectors.groupingBy(r -> r.getRecordDate().toLocalDate()));
 
@@ -576,30 +492,18 @@ public class AIService {
                 }
             }
 
-            // 添加饮食模式分析
             double avgScore = weekRecords.stream().mapToInt(DietRecord::getHealthScore).average().orElse(0);
             sb.append(String.format("\n【饮食分析】平均健康评分：%.0f/100\n", avgScore));
 
-            // 检查是否有规律性问题
             boolean hasBreakfast = weekRecords.stream().anyMatch(r -> "BREAKFAST".equals(r.getMealType()));
             if (!hasBreakfast) {
                 sb.append("⚠️ 用户本周没有记录早餐，可能有不规律吃早餐的习惯\n");
             }
-
-            // 检查蔬菜摄入
-            boolean hasVeggies = weekRecords.stream().anyMatch(r ->
-                    r.getFoodName().contains("蔬菜") || r.getFoodName().contains("青菜") ||
-                            r.getFoodName().contains("西兰花") || r.getFoodName().contains("菠菜"));
-            if (!hasVeggies) {
-                sb.append("⚠️ 用户本周蔬菜摄入较少，建议推荐蔬菜类食物\n");
-            }
         }
 
-        // ========== 节气养生 ==========
         sb.append("\n【当前节气养生参考】\n");
         sb.append(solarTermAdvice).append("\n");
 
-        // ========== 用户询问的具体食材信息 ==========
         if (foodInfo != null) {
             sb.append("\n【用户询问的食材 - 真实数据（必须基于此回答！）】\n");
             sb.append("- 食材名称：").append(foodInfo.getName()).append("\n");
@@ -609,7 +513,6 @@ public class AIService {
             sb.append("- 主要功效：").append(foodInfo.getEffect() != null ? foodInfo.getEffect() : "补益身体").append("\n");
             sb.append("- 禁忌人群：").append(foodInfo.getContraindication() != null ? foodInfo.getContraindication() : "无明显禁忌").append("\n");
 
-            // 判断是否适合当前体质
             int suitabilityScore = getSuitabilityScoreForFood(foodInfo, constitution);
             if (suitabilityScore > 0) {
                 sb.append("- 对").append(constitution).append("体质：✅ 适合食用\n");
@@ -620,40 +523,32 @@ public class AIService {
             }
         }
 
-        // ========== 症状 ==========
         if (!symptom.isEmpty()) {
             sb.append("\n【用户当前症状】").append(symptom).append("\n");
             sb.append("请根据症状给出调理建议，推荐适合的食疗方案。\n");
         }
 
-        // ========== 历史对话上下文 ==========
         if (previousContext != null && !previousContext.isEmpty()) {
             sb.append("\n【上一轮对话摘要】").append(previousContext).append("\n");
             sb.append("请保持对话连贯性，不要重复之前说过的话。\n");
         }
 
-        // ========== 核心要求 ==========
         sb.append("""
 
             【核心回答要求 - 必须遵守】
             1. **优先检查过敏和忌口**：如果用户询问的食物在过敏/忌口列表中，必须明确警告并推荐替代品
-            2. **使用真实食材数据**：如果上面有【用户询问的食材】，必须基于真实数据回答（属性、功效、禁忌）
+            2. **使用真实食材数据**：如果上面有【用户询问的食材】，必须基于真实数据回答
             3. **结合体质**：根据用户的中医体质给出个性化建议
             4. **结合节气**：推荐食物时考虑当前节气
             5. **结合饮食记录**：根据用户最近的饮食给出改善建议
             6. **多轮对话连贯**：记住上一轮聊的内容
             7. **回答格式**：亲切自然，用"您"称呼，可以适当使用表情符号
-            8. **实用建议**：给出具体可操作的建议，如具体食物名称、简单做法
-            9. **避免重复**：不要重复之前已经给过的建议
             
             请开始回答：""");
 
         return sb.toString();
     }
 
-    /**
-     * 判断食物对体质的适宜性
-     */
     private int getSuitabilityScoreForFood(IngredientInfo info, String constitution) {
         if (info == null || info.getProperty() == null) return 0;
 
@@ -679,9 +574,6 @@ public class AIService {
         }
     }
 
-    /**
-     * 提取对话上下文
-     */
     private String extractContextFromConversation(String userMsg, String aiReply) {
         if (userMsg == null) return "";
         if (userMsg.length() > 50) {
@@ -707,16 +599,11 @@ public class AIService {
         return chatHistoryMapper.getByUserId(userId, limit);
     }
 
-    // 添加保存历史的方法
     private void saveFoodHistory(String userId, String foodName, String constitution, IngredientInfo foodInfo) {
         try {
-            // 判断是否适合当前体质
             String suitability = getSuitabilityText(foodInfo, constitution);
-
-            // 构建建议
             String suggestion = buildSuggestion(foodInfo, constitution);
 
-            // 构建营养数据JSON
             Map<String, Object> nutrition = new HashMap<>();
             nutrition.put("property", foodInfo.getProperty());
             nutrition.put("flavor", foodInfo.getFlavor());
@@ -724,9 +611,7 @@ public class AIService {
             nutrition.put("meridian", foodInfo.getMeridian());
             String nutritionJson = objectMapper.writeValueAsString(nutrition);
 
-            // 调用保存
             userService.saveFoodHistory(userId, foodName, constitution, suitability, suggestion, nutritionJson);
-
             log.info("已保存食材查询历史: userId={}, foodName={}, suitability={}", userId, foodName, suitability);
         } catch (Exception e) {
             log.error("保存食材历史失败: {}", e.getMessage());
@@ -757,10 +642,6 @@ public class AIService {
         return effect.isEmpty() ? "适量食用" : effect;
     }
 
-
-    /**
-     * 生成节气养生建议（AI动态生成）
-     */
     public String generateSolarTermAdvice(String termName, String termClimate, String constitution,
                                           WeatherService.WeatherInfo weather) {
         log.info("AI生成节气建议: term={}, constitution={}, city={}", termName, constitution, weather.getCity());
@@ -820,7 +701,6 @@ public class AIService {
         你的回答要亲切自然，像长辈关心晚辈一样。
         回答要简洁实用，不要啰嗦。
         直接输出内容，不要用markdown格式。
-        不要使用"首先、其次、最后"这类词。
         """;
     }
 
