@@ -1,3 +1,4 @@
+// ChatController.java（完整版）
 package org.example.shiyangai.controller;
 
 import org.example.shiyangai.entity.ChatHistory;
@@ -72,10 +73,35 @@ public class ChatController {
     }
 
     /**
-     * 获取聊天历史
+     * 获取聊天历史（支持分页）
      */
     @GetMapping("/history/{userId}")
-    public List<ChatHistory> getHistory(@PathVariable String userId, @RequestParam(defaultValue = "50") int limit) {
-        return aiService.getChatHistory(userId, limit);
+    public Map<String, Object> getHistory(
+            @PathVariable String userId,
+            @RequestParam(defaultValue = "50") int limit,
+            @RequestParam(defaultValue = "0") int offset) {
+
+        List<ChatHistory> history = aiService.getChatHistory(userId, limit);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("history", history);
+        response.put("total", history.size());
+
+        return response;
+    }
+
+    /**
+     * 获取单条历史记录（用于刷新后恢复）
+     */
+    @GetMapping("/history/latest/{userId}")
+    public Map<String, Object> getLatestHistory(@PathVariable String userId) {
+        List<ChatHistory> history = aiService.getChatHistory(userId, 20);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("history", history);
+
+        return response;
     }
 }

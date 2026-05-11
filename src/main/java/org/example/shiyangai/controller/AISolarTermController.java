@@ -2,9 +2,9 @@ package org.example.shiyangai.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.example.shiyangai.service.AIService;
 import org.example.shiyangai.service.WeatherService;
 import org.example.shiyangai.service.UserService;
+import org.example.shiyangai.service.ai.agent.SolarTermAgent;  // 注入 SolarTermAgent
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -17,7 +17,7 @@ import java.util.Map;
 @CrossOrigin
 public class AISolarTermController {
 
-    private final AIService aiService;
+    private final SolarTermAgent solarTermAgent;  // 改为注入 SolarTermAgent
     private final UserService userService;
     private final WeatherService weatherService;
 
@@ -41,8 +41,8 @@ public class AISolarTermController {
         String termClimate = getCurrentSolarTermClimate(termName);
         var weather = weatherService.getWeather(city);
 
-        // 调用AI生成
-        String advice = aiService.generateSolarTermAdvice(termName, termClimate, constitutionType, weather);
+        // 调用 SolarTermAgent 生成
+        String advice = solarTermAgent.generateAdvice(termName, termClimate, constitutionType, weather);
 
         Map<String, Object> response = new HashMap<>();
         response.put("success", true);
@@ -52,7 +52,6 @@ public class AISolarTermController {
     }
 
     private String getCurrentSolarTermName() {
-        // 根据当前日期返回节气名称
         int month = java.time.LocalDate.now().getMonthValue();
         int day = java.time.LocalDate.now().getDayOfMonth();
         if (month == 4 && day >= 4) return "清明";

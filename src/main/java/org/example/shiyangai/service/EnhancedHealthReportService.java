@@ -7,6 +7,7 @@ import org.example.shiyangai.entity.DietRecord;
 import org.example.shiyangai.entity.HealthProfile;
 import org.example.shiyangai.entity.IngredientInfo;
 import org.example.shiyangai.enums.ConstitutionType;
+import org.example.shiyangai.service.diet.DietRecordService;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;

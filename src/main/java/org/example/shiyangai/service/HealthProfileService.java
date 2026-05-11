@@ -42,17 +42,42 @@ public class HealthProfileService {
             profile.setBmi(Math.round(profile.getWeight() / (heightM * heightM) * 10) / 10.0);
         }
 
+        // ✅ 确保 JSON 字段不是空字符串
+        if (profile.getAllergies() != null && profile.getAllergies().isEmpty()) {
+            profile.setAllergies("[]");
+        }
+        if (profile.getFoodAvoidance() != null && profile.getFoodAvoidance().isEmpty()) {
+            profile.setFoodAvoidance("[]");
+        }
+        if (profile.getPastDiseases() != null && profile.getPastDiseases().isEmpty()) {
+            profile.setPastDiseases("[]");
+        }
+
         // 判断档案完整性
         profile.setIsComplete(isProfileComplete(profile));
         profile.setUpdateTime(LocalDateTime.now());
 
         HealthProfile existing = getProfile(profile.getUserId());
         if (existing != null) {
+            // ✅ 使用 updateById 前确保所有字段都有值
+            // 如果前端传的字段为 null，保留数据库原值
+            if (profile.getAllergies() == null && existing.getAllergies() != null) {
+                profile.setAllergies(existing.getAllergies());
+            }
+            if (profile.getFoodAvoidance() == null && existing.getFoodAvoidance() != null) {
+                profile.setFoodAvoidance(existing.getFoodAvoidance());
+            }
+            if (profile.getPastDiseases() == null && existing.getPastDiseases() != null) {
+                profile.setPastDiseases(existing.getPastDiseases());
+            }
+
             healthProfileMapper.updateById(profile);
+            log.info("更新健康档案: userId={}, allergies={}, foodAvoidance={}, pastDiseases={}",
+                    profile.getUserId(), profile.getAllergies(), profile.getFoodAvoidance(), profile.getPastDiseases());
         } else {
             healthProfileMapper.insert(profile);
+            log.info("插入健康档案: userId={}", profile.getUserId());
         }
-        log.info("保存健康档案: userId={}, isComplete={}", profile.getUserId(), profile.getIsComplete());
     }
 
     private boolean isProfileComplete(HealthProfile profile) {

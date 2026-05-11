@@ -11,7 +11,12 @@ const dietTypeOptions = { OMNIVORE: '🥩 杂食', VEGETARIAN: '🥬 全素', EG
 const exerciseFreqOptions = { NEVER: '从不', '1-2TIMES': '每周1-2次', '3-5TIMES': '每周3-5次', DAILY: '每天' };
 const sleepQualityOptions = { GOOD: '😊 良好', FAIR: '😐 一般', POOR: '😔 较差', INSOMNIA: '😫 失眠' };
 
-// 渲染健康档案面板
+// ========== 全局标签数组（使用 window 挂载，确保全局唯一） ==========
+window.allergiesList = [];
+window.avoidanceList = [];
+window.diseasesList = [];
+
+// ========== 渲染健康档案面板 ==========
 function renderProfilePanel() {
     const panel = document.getElementById('profile-panel');
     if (!panel) return;
@@ -23,7 +28,7 @@ function renderProfilePanel() {
     }
 }
 
-// 加载并渲染报告
+// ========== 加载并渲染报告 ==========
 async function loadAndRenderReport(container) {
     if (!currentUser) return;
 
@@ -34,7 +39,6 @@ async function loadAndRenderReport(container) {
         const data = await response.json();
         currentProfile = data.profile;
 
-        // ✅ 修复：有档案就显示，不管 isComplete
         if (currentProfile) {
             renderProfileReport(container);
         } else {
@@ -46,62 +50,7 @@ async function loadAndRenderReport(container) {
     }
 }
 
-// 修改 saveProfileEdit 函数，保存成功后重新加载数据
-async function saveProfileEdit() {
-    if (!currentUser) return;
-
-    const profile = {
-        userId: currentUser.userId,
-        nickname: document.getElementById('nickname')?.value,
-        gender: document.getElementById('gender')?.value,
-        birthDate: document.getElementById('birthDate')?.value,
-        occupation: document.getElementById('occupation')?.value,
-        occupationType: document.getElementById('occupationType')?.value,
-        physiologicalStage: document.getElementById('physiologicalStage')?.value,
-        height: parseFloat(document.getElementById('height')?.value),
-        weight: parseFloat(document.getElementById('weight')?.value),
-        waistline: parseFloat(document.getElementById('waistline')?.value),
-        systolicBp: parseInt(document.getElementById('systolicBp')?.value),
-        diastolicBp: parseInt(document.getElementById('diastolicBp')?.value),
-        fastingGlucose: parseFloat(document.getElementById('fastingGlucose')?.value),
-        totalCholesterol: parseFloat(document.getElementById('totalCholesterol')?.value),
-        uricAcid: parseInt(document.getElementById('uricAcid')?.value),
-        tastePreference: document.getElementById('tastePreference')?.value,
-        dietType: document.getElementById('dietType')?.value,
-        constitution: document.getElementById('constitution')?.value,
-        exerciseFrequency: document.getElementById('exerciseFrequency')?.value,
-        sleepDuration: parseFloat(document.getElementById('sleepDuration')?.value),
-        sleepQuality: document.getElementById('sleepQuality')?.value,
-        waterIntake: parseInt(document.getElementById('waterIntake')?.value),
-        allergies: JSON.stringify(window.allergiesList || []),
-        foodAvoidance: JSON.stringify(window.avoidanceList || []),
-        pastDiseases: JSON.stringify(window.diseasesList || [])
-    };
-
-    try {
-        const response = await fetch(`${API_BASE}/api/profile/save`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(profile)
-        });
-        const data = await response.json();
-        if (data.success) {
-            alert('健康档案保存成功！');
-            isEditing = false;
-            // ✅ 重新加载档案数据
-            const panel = document.getElementById('profile-panel');
-            if (panel) {
-                await loadAndRenderReport(panel);
-            }
-        } else {
-            alert('保存失败：' + (data.message || '未知错误'));
-        }
-    } catch (error) {
-        console.error('保存失败:', error);
-        alert('网络错误，请稍后重试');
-    }
-}
-// 渲染空档案（引导填写）
+// ========== 渲染空档案 ==========
 function renderEmptyProfile(container) {
     container.innerHTML = `
         <div class="profile-report" style="text-align: center; padding: 40px;">
@@ -113,7 +62,7 @@ function renderEmptyProfile(container) {
     `;
 }
 
-// 渲染档案报告（文档样式）
+// ========== 渲染档案报告 ==========
 function renderProfileReport(container) {
     const p = currentProfile;
     const age = p.age || (p.birthDate ? new Date().getFullYear() - new Date(p.birthDate).getFullYear() : '?');
@@ -137,10 +86,10 @@ function renderProfileReport(container) {
 
     container.innerHTML = `
         <div class="profile-report">
-                <div class="profile-header">
-                    <h2>📋 健康档案</h2>
-                    <p>最后更新：${p.updateTime ? new Date(p.updateTime).toLocaleString() : '未知'}</p>
-                </div>
+            <div class="profile-header">
+                <h2>📋 健康档案</h2>
+                <p>最后更新：${p.updateTime ? new Date(p.updateTime).toLocaleString() : '未知'}</p>
+            </div>
             
             <!-- BMI卡片 -->
             <div class="bmi-card">
@@ -202,7 +151,7 @@ function renderProfileReport(container) {
     `;
 }
 
-// 渲染生化指标
+// ========== 渲染生化指标 ==========
 function renderHealthMetrics(p) {
     let html = '';
     if (p.systolicBp && p.diastolicBp) {
@@ -220,21 +169,30 @@ function renderHealthMetrics(p) {
     return html;
 }
 
-// 开始编辑
+// ========== 开始编辑 ==========
 function startEdit() {
     isEditing = true;
     renderProfilePanel();
 }
 
-// 取消编辑
+// ========== 取消编辑 ==========
 function cancelEdit() {
     isEditing = false;
     renderProfilePanel();
 }
 
-// 渲染编辑表单
+// ========== 渲染编辑表单 ==========
 function renderEditForm(container) {
     const p = currentProfile || {};
+
+    // ✅ 从档案加载已有数据到全局变量
+    window.allergiesList = parseJsonArray(p.allergies);
+    window.avoidanceList = parseJsonArray(p.foodAvoidance);
+    window.diseasesList = parseJsonArray(p.pastDiseases);
+
+    console.log('=== 编辑表单加载 ===');
+    console.log('过敏源:', window.allergiesList);
+    console.log('忌口:', window.avoidanceList);
 
     container.innerHTML = `
         <div class="edit-form">
@@ -265,7 +223,7 @@ function renderEditForm(container) {
             
             <!-- 健康指标 -->
             <div class="form-section">
-                <h4>🏥 健康指标（选填，有助于精准分析）</h4>
+                <h4>🏥 健康指标（选填）</h4>
                 <div class="form-row-group">
                     <div class="form-group"><label>收缩压/舒张压</label><div style="display:flex; gap:8px;"><input type="number" id="systolicBp" placeholder="收缩压" value="${p.systolicBp || ''}" style="flex:1"><span style="line-height:34px;">/</span><input type="number" id="diastolicBp" placeholder="舒张压" value="${p.diastolicBp || ''}" style="flex:1"></div></div>
                     <div class="form-group"><label>空腹血糖(mmol/L)</label><input type="number" id="fastingGlucose" step="0.1" value="${p.fastingGlucose || ''}"></div>
@@ -278,8 +236,8 @@ function renderEditForm(container) {
             <div class="form-section">
                 <h4>🍽️ 饮食偏好</h4>
                 <div class="form-row-group">
-                    <div class="form-group"><label>过敏原（可添加多个）</label><div class="tag-input-group"><input type="text" id="allergyInput" placeholder="如：海鲜、花生"><button onclick="addTagField('allergies')">+</button></div><div id="allergiesTags" class="tag-list"></div></div>
-                    <div class="form-group"><label>忌口食物</label><div class="tag-input-group"><input type="text" id="avoidanceInput" placeholder="如：香菜、内脏"><button onclick="addTagField('avoidance')">+</button></div><div id="avoidanceTags" class="tag-list"></div></div>
+                    <div class="form-group"><label>过敏原</label><div class="tag-input-group"><input type="text" id="allergyInput" placeholder="如：花生、海鲜"><button type="button" onclick="window.addTagField('allergies')">+</button></div><div id="allergiesTags" class="tag-list"></div></div>
+                    <div class="form-group"><label>忌口食物</label><div class="tag-input-group"><input type="text" id="avoidanceInput" placeholder="如：香菜、内脏"><button type="button" onclick="window.addTagField('avoidance')">+</button></div><div id="avoidanceTags" class="tag-list"></div></div>
                     <div class="form-group"><label>口味偏好</label><select id="tastePreference"><option value="">请选择</option><option value="SPICY" ${p.tastePreference === 'SPICY' ? 'selected' : ''}>🌶️ 喜辣</option><option value="SWEET" ${p.tastePreference === 'SWEET' ? 'selected' : ''}>🍰 喜甜</option><option value="LIGHT" ${p.tastePreference === 'LIGHT' ? 'selected' : ''}>🥬 清淡</option><option value="OILY_SALTY" ${p.tastePreference === 'OILY_SALTY' ? 'selected' : ''}>🍟 重油盐</option></select></div>
                     <div class="form-group"><label>饮食类型</label><select id="dietType"><option value="">请选择</option><option value="OMNIVORE" ${p.dietType === 'OMNIVORE' ? 'selected' : ''}>杂食</option><option value="VEGETARIAN" ${p.dietType === 'VEGETARIAN' ? 'selected' : ''}>全素</option><option value="EGG_DAIRY_VEGAN" ${p.dietType === 'EGG_DAIRY_VEGAN' ? 'selected' : ''}>蛋奶素</option><option value="LOW_CARB" ${p.dietType === 'LOW_CARB' ? 'selected' : ''}>低碳水</option><option value="IF" ${p.dietType === 'IF' ? 'selected' : ''}>间歇性断食</option></select></div>
                 </div>
@@ -289,7 +247,7 @@ function renderEditForm(container) {
             <div class="form-section">
                 <h4>🌿 中医特征</h4>
                 <div class="form-row-group">
-                    <div class="form-group"><label>体质类型</label><select id="constitution"><option value="">请选择（可先做体质测评）</option><option value="平和质" ${p.constitution === '平和质' ? 'selected' : ''}>平和质</option><option value="气虚质" ${p.constitution === '气虚质' ? 'selected' : ''}>气虚质</option><option value="阳虚质" ${p.constitution === '阳虚质' ? 'selected' : ''}>阳虚质</option><option value="阴虚质" ${p.constitution === '阴虚质' ? 'selected' : ''}>阴虚质</option><option value="痰湿质" ${p.constitution === '痰湿质' ? 'selected' : ''}>痰湿质</option><option value="湿热质" ${p.constitution === '湿热质' ? 'selected' : ''}>湿热质</option><option value="血瘀质" ${p.constitution === '血瘀质' ? 'selected' : ''}>血瘀质</option><option value="气郁质" ${p.constitution === '气郁质' ? 'selected' : ''}>气郁质</option></select></div>
+                    <div class="form-group"><label>体质类型</label><select id="constitution"><option value="">请选择</option><option value="平和质" ${p.constitution === '平和质' ? 'selected' : ''}>平和质</option><option value="气虚质" ${p.constitution === '气虚质' ? 'selected' : ''}>气虚质</option><option value="阳虚质" ${p.constitution === '阳虚质' ? 'selected' : ''}>阳虚质</option><option value="阴虚质" ${p.constitution === '阴虚质' ? 'selected' : ''}>阴虚质</option><option value="痰湿质" ${p.constitution === '痰湿质' ? 'selected' : ''}>痰湿质</option><option value="湿热质" ${p.constitution === '湿热质' ? 'selected' : ''}>湿热质</option><option value="血瘀质" ${p.constitution === '血瘀质' ? 'selected' : ''}>血瘀质</option><option value="气郁质" ${p.constitution === '气郁质' ? 'selected' : ''}>气郁质</option></select></div>
                 </div>
             </div>
             
@@ -305,8 +263,8 @@ function renderEditForm(container) {
             </div>
             
             <div class="action-buttons">
-                <button class="save-btn" onclick="saveProfileEdit()">💾 保存档案</button>
-                <button class="cancel-btn" onclick="cancelEdit()">取消</button>
+                <button class="save-btn" onclick="window.saveProfileEdit()">💾 保存档案</button>
+                <button class="cancel-btn" onclick="window.cancelEdit()">取消</button>
             </div>
         </div>
     `;
@@ -315,7 +273,121 @@ function renderEditForm(container) {
     renderTagFields();
 }
 
-// 辅助函数
+// ========== 渲染标签字段 ==========
+function renderTagFields() {
+    const allergiesDiv = document.getElementById('allergiesTags');
+    if (allergiesDiv) {
+        allergiesDiv.innerHTML = (window.allergiesList || []).map((item, i) =>
+            `<span class="tag">${escapeHtml(item)} <span style="cursor:pointer" onclick="window.removeTagItem('allergies', ${i})">×</span></span>`
+        ).join('');
+    }
+
+    const avoidanceDiv = document.getElementById('avoidanceTags');
+    if (avoidanceDiv) {
+        avoidanceDiv.innerHTML = (window.avoidanceList || []).map((item, i) =>
+            `<span class="tag">${escapeHtml(item)} <span style="cursor:pointer" onclick="window.removeTagItem('avoidance', ${i})">×</span></span>`
+        ).join('');
+    }
+}
+
+// ========== 添加标签 ==========
+function addTagField(type) {
+    let inputId, list;
+    if (type === 'allergies') {
+        inputId = 'allergyInput';
+        list = window.allergiesList;
+    } else if (type === 'avoidance') {
+        inputId = 'avoidanceInput';
+        list = window.avoidanceList;
+    } else {
+        return;
+    }
+
+    const input = document.getElementById(inputId);
+    const value = input.value.trim();
+
+    console.log(`添加 ${type}:`, value);
+
+    if (value && !list.includes(value)) {
+        list.push(value);
+        console.log(`${type} 列表现在:`, list);
+        renderTagFields();
+        input.value = '';
+    }
+}
+
+// ========== 删除标签 ==========
+function removeTagItem(type, index) {
+    if (type === 'allergies') {
+        window.allergiesList.splice(index, 1);
+        console.log('删除后过敏源列表:', window.allergiesList);
+    } else if (type === 'avoidance') {
+        window.avoidanceList.splice(index, 1);
+        console.log('删除后忌口列表:', window.avoidanceList);
+    }
+    renderTagFields();
+}
+
+// ========== 保存编辑 ==========
+async function saveProfileEdit() {
+    if (!currentUser) return;
+
+    console.log('保存前 - 过敏源列表:', window.allergiesList);
+    console.log('保存前 - 忌口列表:', window.avoidanceList);
+
+    const profile = {
+        userId: currentUser.userId,
+        nickname: document.getElementById('nickname')?.value || null,
+        gender: document.getElementById('gender')?.value || null,
+        birthDate: document.getElementById('birthDate')?.value || null,
+        occupation: document.getElementById('occupation')?.value || null,
+        occupationType: document.getElementById('occupationType')?.value || null,
+        physiologicalStage: document.getElementById('physiologicalStage')?.value || null,
+        height: parseFloat(document.getElementById('height')?.value) || null,
+        weight: parseFloat(document.getElementById('weight')?.value) || null,
+        waistline: parseFloat(document.getElementById('waistline')?.value) || null,
+        systolicBp: parseInt(document.getElementById('systolicBp')?.value) || null,
+        diastolicBp: parseInt(document.getElementById('diastolicBp')?.value) || null,
+        fastingGlucose: parseFloat(document.getElementById('fastingGlucose')?.value) || null,
+        totalCholesterol: parseFloat(document.getElementById('totalCholesterol')?.value) || null,
+        uricAcid: parseInt(document.getElementById('uricAcid')?.value) || null,
+        tastePreference: document.getElementById('tastePreference')?.value || null,
+        dietType: document.getElementById('dietType')?.value || null,
+        constitution: document.getElementById('constitution')?.value || null,
+        exerciseFrequency: document.getElementById('exerciseFrequency')?.value || null,
+        sleepDuration: parseFloat(document.getElementById('sleepDuration')?.value) || null,
+        sleepQuality: document.getElementById('sleepQuality')?.value || null,
+        waterIntake: parseInt(document.getElementById('waterIntake')?.value) || null,
+        allergies: JSON.stringify(window.allergiesList || []),
+        foodAvoidance: JSON.stringify(window.avoidanceList || []),
+        pastDiseases: JSON.stringify(window.diseasesList || [])
+    };
+
+    try {
+        const response = await fetch(`${API_BASE}/api/profile/save`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(profile)
+        });
+        const data = await response.json();
+        if (data.success) {
+            alert('健康档案保存成功！');
+            isEditing = false;
+            // 重新加载档案
+            const panel = document.getElementById('profile-panel');
+            if (panel) {
+                await loadAndRenderReport(panel);
+            }
+        } else {
+            alert('保存失败：' + (data.message || '未知错误'));
+        }
+    } catch (error) {
+        console.error('保存失败:', error);
+        alert('网络错误，请稍后重试');
+    }
+}
+
+// ========== 辅助函数 ==========
 function parseJsonArray(str) {
     if (!str) return [];
     try { return JSON.parse(str); } catch(e) { return []; }
@@ -326,23 +398,14 @@ function formatTagList(tags, type = 'normal') {
     return tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('');
 }
 
-function formatDateTime(dateStr) {
-    if (!dateStr) return '未知';
-    try {
-        // 如果已经是 Date 对象
-        if (dateStr instanceof Date) {
-            return `${dateStr.getFullYear()}-${String(dateStr.getMonth()+1).padStart(2,'0')}-${String(dateStr.getDate()).padStart(2,'0')} ${String(dateStr.getHours()).padStart(2,'0')}:${String(dateStr.getMinutes()).padStart(2,'0')}`;
-        }
-        // 如果是字符串
-        const d = new Date(dateStr);
-        // 检查是否是有效日期
-        if (isNaN(d.getTime())) {
-            return '未知';
-        }
-        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-    } catch (e) {
-        return '未知';
-    }
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>]/g, function(m) {
+        if (m === '&') return '&amp;';
+        if (m === '<') return '&lt;';
+        if (m === '>') return '&gt;';
+        return m;
+    });
 }
 
 function formatPhysiologicalStage(stage) {
@@ -361,90 +424,7 @@ function formatSmokingDrinking(smoking, drinking) {
     return `${smokeMap[smoking] || '未填写'} · ${drinkMap[drinking] || '未填写'}`;
 }
 
-// 保存编辑
-async function saveProfileEdit() {
-    if (!currentUser) return;
-
-    const profile = {
-        userId: currentUser.userId,
-        nickname: document.getElementById('nickname')?.value,
-        gender: document.getElementById('gender')?.value,
-        birthDate: document.getElementById('birthDate')?.value,
-        occupation: document.getElementById('occupation')?.value,
-        occupationType: document.getElementById('occupationType')?.value,
-        physiologicalStage: document.getElementById('physiologicalStage')?.value,
-        height: parseFloat(document.getElementById('height')?.value),
-        weight: parseFloat(document.getElementById('weight')?.value),
-        waistline: parseFloat(document.getElementById('waistline')?.value),
-        systolicBp: parseInt(document.getElementById('systolicBp')?.value),
-        diastolicBp: parseInt(document.getElementById('diastolicBp')?.value),
-        fastingGlucose: parseFloat(document.getElementById('fastingGlucose')?.value),
-        totalCholesterol: parseFloat(document.getElementById('totalCholesterol')?.value),
-        uricAcid: parseInt(document.getElementById('uricAcid')?.value),
-        tastePreference: document.getElementById('tastePreference')?.value,
-        dietType: document.getElementById('dietType')?.value,
-        constitution: document.getElementById('constitution')?.value,
-        exerciseFrequency: document.getElementById('exerciseFrequency')?.value,
-        sleepDuration: parseFloat(document.getElementById('sleepDuration')?.value),
-        sleepQuality: document.getElementById('sleepQuality')?.value,
-        waterIntake: parseInt(document.getElementById('waterIntake')?.value),
-        allergies: JSON.stringify(window.allergiesList || []),
-        foodAvoidance: JSON.stringify(window.avoidanceList || []),
-        pastDiseases: JSON.stringify(window.diseasesList || [])
-    };
-
-    try {
-        const response = await fetch(`${API_BASE}/api/profile/save`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(profile)
-        });
-        const data = await response.json();
-        if (data.success) {
-            alert('健康档案保存成功！');
-            isEditing = false;
-            renderProfilePanel();
-        } else {
-            alert('保存失败：' + (data.message || '未知错误'));
-        }
-    } catch (error) {
-        alert('网络错误，请稍后重试');
-    }
-}
-
-// 标签字段管理
-let allergiesList = [], avoidanceList = [], diseasesList = [];
-
-function renderTagFields() {
-    const allergiesDiv = document.getElementById('allergiesTags');
-    if (allergiesDiv) allergiesDiv.innerHTML = allergiesList.map((item, i) => `<span class="tag">${escapeHtml(item)} <span style="cursor:pointer" onclick="removeTagItem('allergies', ${i})">×</span></span>`).join('');
-
-    const avoidanceDiv = document.getElementById('avoidanceTags');
-    if (avoidanceDiv) avoidanceDiv.innerHTML = avoidanceList.map((item, i) => `<span class="tag">${escapeHtml(item)} <span style="cursor:pointer" onclick="removeTagItem('avoidance', ${i})">×</span></span>`).join('');
-}
-
-function addTagField(type) {
-    let inputId, list;
-    if (type === 'allergies') { inputId = 'allergyInput'; list = allergiesList; }
-    else if (type === 'avoidance') { inputId = 'avoidanceInput'; list = avoidanceList; }
-    else return;
-
-    const input = document.getElementById(inputId);
-    const value = input.value.trim();
-    if (value && !list.includes(value)) {
-        list.push(value);
-        renderTagFields();
-        input.value = '';
-    }
-}
-
-function removeTagItem(type, index) {
-    if (type === 'allergies') allergiesList.splice(index, 1);
-    else if (type === 'avoidance') avoidanceList.splice(index, 1);
-    renderTagFields();
-}
-
-// 挂载全局函数
+// ========== 挂载全局函数 ==========
 window.renderProfilePanel = renderProfilePanel;
 window.startEdit = startEdit;
 window.cancelEdit = cancelEdit;

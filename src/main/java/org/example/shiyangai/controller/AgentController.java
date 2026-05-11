@@ -4,7 +4,7 @@ import org.example.shiyangai.agent.ReActAgent;
 import org.example.shiyangai.entity.DietRecord;
 import org.example.shiyangai.service.AIService;
 import org.example.shiyangai.service.AIReportService;  // 新增
-import org.example.shiyangai.service.DietRecordService;
+import org.example.shiyangai.service.diet.DietRecordService;
 import org.example.shiyangai.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;

@@ -5,7 +5,6 @@ const API_BASE = '';
 let currentUser = null;
 
 // 工具函数
-// utils.js
 function escapeHtml(text) {
     if (!text) return '';
     const div = document.createElement('div');

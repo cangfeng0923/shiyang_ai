@@ -2,6 +2,7 @@ package org.example.shiyangai.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.example.shiyangai.service.ai.agent.SolarTermAgent;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -15,6 +16,7 @@ public class SolarTermService {
 
     private final WeatherService weatherService;
     private final AIService aiService;
+    private final SolarTermAgent solarTermAgent;
 
     private static final Map<String, String[]> SOLAR_TERM_DATES = new HashMap<>();
 
@@ -151,7 +153,7 @@ public class SolarTermService {
     public String getSolarTermAdviceAI(String userId, String constitution, String city) {
         SolarTermInfo term = getCurrentSolarTerm();
         WeatherService.WeatherInfo weather = weatherService.getWeather(city);
-        return aiService.generateSolarTermAdvice(term.getName(), term.getClimateDesc(), constitution, weather);
+        return solarTermAgent.generateAdvice(term.getName(), term.getClimateDesc(), constitution, weather);
     }
 
     @lombok.Data

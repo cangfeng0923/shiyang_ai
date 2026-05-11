@@ -47,14 +47,25 @@ public class ProfileController {
      */
     @PostMapping("/save")
     public Map<String, Object> saveProfile(@RequestBody HealthProfile profile) {
+        log.info("收到保存请求: userId={}", profile.getUserId());
+        log.info("allergies 原始值: {}", profile.getAllergies());
+        log.info("foodAvoidance 原始值: {}", profile.getFoodAvoidance());
+        log.info("pastDiseases 原始值: {}", profile.getPastDiseases());
+
         profileService.saveProfile(profile);
+
+        // ✅ 验证保存后的数据
+        HealthProfile saved = profileService.getProfile(profile.getUserId());
+        log.info("保存后验证: allergies={}, foodAvoidance={}, pastDiseases={}",
+                saved != null ? saved.getAllergies() : null,
+                saved != null ? saved.getFoodAvoidance() : null,
+                saved != null ? saved.getPastDiseases() : null);
 
         Map<String, Object> response = new HashMap<>();
         response.put("success", true);
         response.put("message", "健康档案保存成功");
         return response;
     }
-
     /**
      * 更新单个字段
      */
